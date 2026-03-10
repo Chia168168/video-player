@@ -564,38 +564,56 @@ function detectFPS() {
       showToast(`解析錯誤: ${e.message}`);
     }
 
-    showToast(`原始解析值: ${detected}`);
-
     if (detected && detected > 1 && detected <= 300) {
       fps = snapToCommonFPS(detected);
       fpsDetected = true;
-      setTimeout(() => showToast(`fps = ${fps}`), 2500);
+      showToast(`fps = ${fps}`);
     } else {
       fps = 30;
       fpsDetected = false;
-      setTimeout(() => showToast('無法偵測，預設 30fps'), 2500);
+      showToast('無法偵測，預設 30fps');
     }
     updateUI();
     resolve();
   });
 }
 
-// Parse MP4/MOV file to extract video track fps
-// Reads: ftyp → moov → trak → mdia → mdhd (timescale)
-//                             trak → mdia → minf → stbl → stts (sample durations)
 async function parseFPSFromFile(file) {
-  // Read first 8MB — moov box is usually near the start (or end for old files)
   const CHUNK = Math.min(file.size, 8 * 1024 * 1024);
   const buf = await readFileSlice(file, 0, CHUNK);
   const view = new DataView(buf);
 
-  // If moov not found in first chunk, try last 2MB
-  let result = findFPSInBuffer(view, buf.byteLength);
+  // Debug: show first few box names
+  let dbg = '';
+  let off = 0;
+  for (let i = 0; i < 6 && off + 8 <= buf.byteLength; i++) {
+    let sz = readU32(view, off);
+    const nm = boxName(view, off + 4);
+    dbg += nm + '(' + sz + ') ';
+    if (sz < 8) break;
+    off += sz;
+  }
+  showToast('boxes: ' + dbg);
+
+  const result = findFPSInBuffer(view, buf.byteLength);
   if (!result && file.size > CHUNK) {
     const tailStart = Math.max(0, file.size - 2 * 1024 * 1024);
     const tailBuf = await readFileSlice(file, tailStart, file.size);
     const tailView = new DataView(tailBuf);
-    result = findFPSInBuffer(tailView, tailBuf.byteLength);
+
+    // Debug tail boxes
+    let dbg2 = '';
+    let off2 = 0;
+    for (let i = 0; i < 4 && off2 + 8 <= tailBuf.byteLength; i++) {
+      let sz = readU32(tailView, off2);
+      const nm = boxName(tailView, off2 + 4);
+      dbg2 += nm + '(' + sz + ') ';
+      if (sz < 8) break;
+      off2 += sz;
+    }
+    setTimeout(() => showToast('tail: ' + dbg2), 2600);
+
+    return findFPSInBuffer(tailView, tailBuf.byteLength);
   }
   return result;
 }
