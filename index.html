@@ -171,6 +171,32 @@
     color: rgba(255,255,255,0.38); font-size: 16px; line-height: 1.3;
   }
 
+  /* FPS row */
+  #fps-row {
+    display: flex; align-items: center;
+    padding: 6px 12px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .fps-btns {
+    display: flex; gap: 6px; flex: 1;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .fps-btns::-webkit-scrollbar { display: none; }
+  .fps-btn {
+    flex-shrink: 0; padding: 5px 10px;
+    border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.12);
+    background: transparent; color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 12px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .fps-btn.active {
+    background: rgba(71,212,255,0.15);
+    border-color: var(--accent2);
+    color: var(--accent2); font-weight: 500;
+  }
+  .fps-btn:active { opacity: 0.7; transform: scale(0.95); }
+
   /* Speed row */
   #speed-row {
     display: flex; align-items: center;
@@ -295,6 +321,7 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"></script>
 </head>
 <body>
 
@@ -348,6 +375,22 @@
         background:rgba(71,212,255,0.08);color:#47d4ff;
         font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;white-space:nowrap;
       ">換片</button>
+    </div>
+
+    <div id="fps-row">
+      <div class="speed-label">FPS</div>
+      <div class="fps-btns">
+        <button class="fps-btn" data-fps="23.976">23.97</button>
+        <button class="fps-btn" data-fps="24">24</button>
+        <button class="fps-btn" data-fps="25">25</button>
+        <button class="fps-btn" data-fps="29.97">29.97</button>
+        <button class="fps-btn active" data-fps="30">30</button>
+        <button class="fps-btn" data-fps="50">50</button>
+        <button class="fps-btn" data-fps="59.94">59.94</button>
+        <button class="fps-btn" data-fps="60">60</button>
+        <button class="fps-btn" data-fps="120">120</button>
+        <button class="fps-btn" data-fps="240">240</button>
+      </div>
     </div>
 
     <div id="playback-row">
@@ -515,6 +558,10 @@ function loadVideoFile(file) {
   document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
   currentSpeed = 1; video.playbackRate = 1;
   fps = 30; fpsDetected = false;
+  // Reset fps buttons to 30
+  document.querySelectorAll('.fps-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.fps === '30');
+  });
 
   if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
   currentFile = file;
@@ -547,216 +594,84 @@ function onMetaLoaded() {
   });
 }
 
-// ── FPS Detection: parse MP4/MOV binary metadata ──
-// Read the actual timescale & sample_duration from the file's moov/trak/mdhd box.
-// This works offline, needs no playback, and is not limited by display refresh rate.
+// ── FPS Detection via mp4box.js ──
+let currentFile = null;
 
-let currentFile = null; // store file reference for parsing
+// ── FPS manual buttons ──
+function setFps(value) {
+  fps = value;
+  fpsDetected = true;
+  document.querySelectorAll('.fps-btn').forEach(b => {
+    b.classList.toggle('active', parseFloat(b.dataset.fps) === value);
+  });
+  updateUI();
+}
+
+document.querySelectorAll('.fps-btn').forEach(btn => {
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    setFps(parseFloat(btn.dataset.fps));
+    showToast(`FPS 設為 ${fps}`);
+    resetAutoHide();
+  });
+});
 
 function detectFPS() {
-  return new Promise(async resolve => {
-    let detected = null;
-    try {
-      if (currentFile) {
-        detected = await parseFPSFromFile(currentFile);
-      }
-    } catch(e) {
-      showToast(`解析錯誤: ${e.message}`);
-    }
-
-    if (detected && detected > 1 && detected <= 300) {
-      fps = snapToCommonFPS(detected);
-      fpsDetected = true;
-      showToast(`fps = ${fps}`);
-    } else {
-      fps = 30;
-      fpsDetected = false;
-      showToast('無法偵測，預設 30fps');
-    }
-    updateUI();
-    resolve();
-  });
-}
-
-async function parseFPSFromFile(file) {
-  // First try the beginning of the file
-  const HEAD = Math.min(file.size, 4 * 1024 * 1024);
-  const headBuf = await readFileSlice(file, 0, HEAD);
-  const headView = new DataView(headBuf);
-
-  let result = scanForMoov(headView, headBuf.byteLength);
-  if (result) return result;
-
-  // moov not in head — scan the tail (last 6MB)
-  if (file.size > HEAD) {
-    const tailSize = Math.min(file.size, 6 * 1024 * 1024);
-    const tailStart = file.size - tailSize;
-    const tailBuf = await readFileSlice(file, tailStart, file.size);
-    const tailView = new DataView(tailBuf);
-    result = scanForMoov(tailView, tailBuf.byteLength);
-    if (result) return result;
-  }
-
-  return null;
-}
-
-// Scan buffer byte-by-byte looking for 'moov' magic, then parse from there
-function scanForMoov(view, len) {
-  // First try walking from offset 0 as proper boxes
-  let result = findFPSInBuffer(view, len);
-  if (result) return result;
-
-  // If that failed, scan for 'moov' anywhere in the buffer
-  for (let i = 0; i + 8 <= len; i++) {
-    if (view.getUint8(i)   === 0x6D && // m
-        view.getUint8(i+1) === 0x6F && // o
-        view.getUint8(i+2) === 0x6F && // o
-        view.getUint8(i+3) === 0x76) { // v
-      // Found 'moov' — size is 4 bytes before it
-      if (i < 4) continue;
-      const size = readU32(view, i - 4);
-      if (size > 8 && size < len * 2) {
-        result = parseMovieBox(view, i + 4, Math.min(i - 4 + size, len));
-        if (result) return result;
-      }
-    }
-  }
-  return null;
-}
-
-function readFileSlice(file, start, end) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file.slice(start, end));
-  });
-}
-
-function readU32(view, offset) {
-  return view.getUint32(offset, false); // big-endian
-}
-function readU64(view, offset) {
-  // JS safe integer range: read as two 32-bit halves
-  return readU32(view, offset) * 0x100000000 + readU32(view, offset + 4);
-}
-function boxName(view, offset) {
-  let s = '';
-  for (let i = 0; i < 4; i++) s += String.fromCharCode(view.getUint8(offset + i));
-  return s;
-}
-
-function findFPSInBuffer(view, len) {
-  // Walk top-level boxes to find 'moov'
-  let offset = 0;
-  while (offset + 8 <= len) {
-    let size = readU32(view, offset);
-    const name = boxName(view, offset + 4);
-    if (size === 1) {
-      // 64-bit extended size
-      size = readU64(view, offset + 8);
-    }
-    if (size < 8) break;
-
-    if (name === 'moov') {
-      return parseMovieBox(view, offset + 8, offset + Math.min(size, len - offset));
-    }
-    offset += size;
-  }
-  return null;
-}
-
-function parseMovieBox(view, start, end) {
-  // Walk moov children to find 'trak' boxes
-  let offset = start;
-  while (offset + 8 <= end) {
-    let size = readU32(view, offset);
-    const name = boxName(view, offset + 4);
-    if (size === 1) size = readU64(view, offset + 8);
-    if (size < 8) break;
-
-    if (name === 'trak') {
-      const result = parseTrakBox(view, offset + 8, offset + Math.min(size, end - offset + start));
-      if (result) return result; // return first valid video track
-    }
-    offset += size;
-  }
-  return null;
-}
-
-function parseTrakBox(view, start, end) {
-  let timescale = null;
-  let sttsResult = null;
-  let isVideoTrack = false;
-
-  function walk(s, e) {
-    let off = s;
-    while (off + 8 <= e) {
-      let sz = readU32(view, off);
-      const nm = boxName(view, off + 4);
-      if (sz === 1) sz = readU64(view, off + 8);
-      if (sz < 8) break;
-      const childEnd = Math.min(off + sz, e);
-
-      if (nm === 'mdia' || nm === 'minf' || nm === 'stbl') {
-        walk(off + 8, childEnd);
-      } else if (nm === 'mdhd') {
-        timescale = parseMdhd(view, off + 8, childEnd);
-      } else if (nm === 'hdlr') {
-        isVideoTrack = parseHdlr(view, off + 8, childEnd);
-      } else if (nm === 'stts') {
-        sttsResult = parseStts(view, off + 8, childEnd);
-      }
-      off += sz;
-    }
-  }
-
-  walk(start, end);
-
-  if (isVideoTrack && timescale && sttsResult) {
-    return timescale / sttsResult;
-  }
-  return null;
-}
-
-function parseMdhd(view, start, end) {
-  if (start >= end) return null;
-  const version = view.getUint8(start);
-  // version 0: 4-byte fields; version 1: 8-byte fields
-  const tsOffset = version === 1 ? start + 1 + 3 + 8 + 8 : start + 1 + 3 + 4 + 4;
-  if (tsOffset + 4 > end) return null;
-  return readU32(view, tsOffset);
-}
-
-function parseHdlr(view, start, end) {
-  // version(1) + flags(3) + pre_defined(4) + handler_type(4)
-  if (start + 12 > end) return false;
-  const handler = boxName(view, start + 8);
-  return handler === 'vide';
-}
-
-function parseStts(view, start, end) {
-  // version(1)+flags(3)+entry_count(4)+[sample_count(4)+sample_delta(4)...]
-  if (start + 8 > end) return null;
-  const entryCount = readU32(view, start + 4);
-  if (entryCount === 0 || start + 8 + entryCount * 8 > end) return null;
-  // Use the delta of the first entry (most frames share this delta)
-  let bestCount = 0, bestDelta = 0;
-  for (let i = 0; i < entryCount && i < 32; i++) {
-    const count = readU32(view, start + 8 + i * 8);
-    const delta = readU32(view, start + 8 + i * 8 + 4);
-    if (count > bestCount && delta > 0) { bestCount = count; bestDelta = delta; }
-  }
-  return bestDelta || null;
-}
-
-function seekExact(t) {
   return new Promise(resolve => {
-    const clamped = Math.max(0, Math.min(duration - 0.001, t));
-    if (Math.abs(video.currentTime - clamped) < 0.0001) { resolve(); return; }
-    const done = () => { video.removeEventListener('seeked', done); resolve(); };
-    video.addEventListener('seeked', done);
-    video.currentTime = clamped;
+    if (!currentFile || typeof MP4Box === 'undefined') {
+      showToast('請手動選擇 FPS');
+      resolve(); return;
+    }
+
+    const mp4boxFile = MP4Box.createFile();
+    let resolved = false;
+
+    function done(detectedFps) {
+      if (resolved) return;
+      resolved = true;
+      if (detectedFps && detectedFps > 1 && detectedFps <= 300) {
+        setFps(snapToCommonFPS(detectedFps));
+        showToast(`自動偵測 ${fps} fps`);
+      } else {
+        showToast('無法偵測，請手動選 FPS');
+      }
+      resolve();
+    }
+
+    mp4boxFile.onReady = info => {
+      const vtrack = info.tracks.find(t => t.type === 'video');
+      if (vtrack) {
+        // fps = nb_samples / (duration / timescale)
+        const rawFps = vtrack.nb_samples / (vtrack.duration / vtrack.timescale);
+        done(rawFps);
+      } else {
+        done(null);
+      }
+    };
+
+    mp4boxFile.onError = () => done(null);
+
+    // Feed entire file in 1MB chunks until onReady fires
+    const CHUNK = 1 * 1024 * 1024;
+    let offset = 0;
+
+    function feedNext() {
+      if (resolved || offset >= currentFile.size) { mp4boxFile.flush(); return; }
+      const end = Math.min(offset + CHUNK, currentFile.size);
+      const reader = new FileReader();
+      reader.onload = e => {
+        const buf = e.target.result;
+        buf.fileStart = offset;
+        const nextPos = mp4boxFile.appendBuffer(buf);
+        offset = (nextPos !== undefined && nextPos > offset) ? nextPos : end;
+        if (!resolved) feedNext();
+      };
+      reader.onerror = () => done(null);
+      reader.readAsArrayBuffer(currentFile.slice(offset, end));
+    }
+
+    feedNext();
+    setTimeout(() => done(null), 10000); // 10s timeout
   });
 }
 
@@ -767,7 +682,26 @@ function snapToCommonFPS(raw) {
     const d = Math.abs(raw - c);
     if (d < bestDiff) { bestDiff = d; best = c; }
   }
-  return bestDiff / raw < 0.06 ? best : Math.round(raw * 100) / 100;
+  return bestDiff / raw < 0.06 ? best : Math.round(raw * 10) / 10;
+}
+
+function readFileSlice(file, start, end) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = reject;
+    r.readAsArrayBuffer(file.slice(start, end));
+  });
+}
+
+function seekExact(t) {
+  return new Promise(resolve => {
+    const clamped = Math.max(0, Math.min(duration - 0.001, t));
+    if (Math.abs(video.currentTime - clamped) < 0.0001) { resolve(); return; }
+    const done = () => { video.removeEventListener('seeked', done); resolve(); };
+    video.addEventListener('seeked', done);
+    video.currentTime = clamped;
+  });
 }
 
 // ── Thumbnails ──
