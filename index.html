@@ -76,6 +76,9 @@
     overflow: hidden;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+    border-style: dashed;
   }
 
   .upload-zone:active { border-color: var(--accent); background: rgba(200,255,71,0.07); }
@@ -85,6 +88,7 @@
     position: absolute;
     inset: 0;
     background: radial-gradient(ellipse at 50% 120%, rgba(200,255,71,0.08) 0%, transparent 60%);
+    pointer-events: none;
   }
 
   .upload-icon {
@@ -102,7 +106,16 @@
   .upload-text { font-size: 15px; font-weight: 600; color: var(--text); }
   .upload-sub { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
 
-  #file-input { display: none; }
+  #file-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 10;
+    font-size: 16px;
+  }
 
   /* ── Player Screen ── */
   #player-screen {
@@ -403,14 +416,14 @@
   <!-- Upload screen -->
   <div id="upload-screen">
     <div class="logo">Video Frame Player</div>
-    <label class="upload-zone" for="file-input">
+    <div class="upload-zone" id="upload-zone">
+      <input type="file" id="file-input" accept="video/*">
       <div class="upload-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M15 10l4.553-2.276A1 1 0 0121 8.723v6.554a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
       </div>
       <div class="upload-text">選擇影片</div>
       <div class="upload-sub">MP4 · MOV · WebM</div>
-    </label>
-    <input type="file" id="file-input" accept="video/*">
+    </div>
   </div>
 
   <!-- Player screen -->
@@ -551,14 +564,26 @@ function updateUI() {
 
 // ── File load ──
 fileInput.addEventListener('change', e => {
-  const file = e.target.files[0];
+  const file = e.target.files && e.target.files[0];
   if (!file) return;
+
+  // Revoke previous URL if any
+  if (video.src && video.src.startsWith('blob:')) URL.revokeObjectURL(video.src);
+
   const url = URL.createObjectURL(file);
   video.src = url;
   video.load();
+
   uploadScreen.style.display = 'none';
   playerScreen.style.display = 'flex';
+
   video.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
+
+  // iOS fallback: sometimes loadedmetadata doesn't fire, use canplay
+  video.addEventListener('canplay', function onCanPlay() {
+    video.removeEventListener('canplay', onCanPlay);
+    if (duration === 0 && video.duration > 0) onMetaLoaded();
+  });
 });
 
 function onMetaLoaded() {
@@ -789,8 +814,7 @@ document.getElementById('save-btn').addEventListener('click', () => {
   }, 'image/jpeg', 0.95);
 });
 
-// ── Upload zone label click ──
-document.querySelector('.upload-zone').addEventListener('click', () => fileInput.click());
+// ── Done ──
 </script>
 </body>
 </html>
