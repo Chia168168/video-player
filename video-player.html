@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>影片播放器</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  :root {
+    --bg: #0a0a0c;
+    --surface: #13131a;
+    --surface2: #1c1c28;
+    --accent: #c8ff47;
+    --accent2: #47d4ff;
+    --text: #f0f0f4;
+    --muted: #6b6b80;
+    --border: rgba(255,255,255,0.07);
+    --radius: 16px;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* ── Upload Screen ── */
+  #upload-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 24px;
+    padding: 32px;
+  }
+
+  .logo {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .upload-zone {
+    width: 100%;
+    max-width: 340px;
+    aspect-ratio: 16/10;
+    border: 1.5px dashed rgba(200, 255, 71, 0.3);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: linear-gradient(135deg, rgba(200,255,71,0.03) 0%, rgba(71,212,255,0.03) 100%);
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+
+  .upload-zone:active { border-color: var(--accent); background: rgba(200,255,71,0.07); }
+
+  .upload-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 120%, rgba(200,255,71,0.08) 0%, transparent 60%);
+  }
+
+  .upload-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: rgba(200,255,71,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .upload-icon svg { width: 28px; height: 28px; stroke: var(--accent); }
+
+  .upload-text { font-size: 15px; font-weight: 600; color: var(--text); }
+  .upload-sub { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+  #file-input { display: none; }
+
+  /* ── Player Screen ── */
+  #player-screen {
+    display: none;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Video area */
+  #video-container {
+    position: relative;
+    background: #000;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  #video {
+    width: 100%;
+    max-height: 100%;
+    display: block;
+    object-fit: contain;
+  }
+
+  /* Time overlay */
+  #time-overlay {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    pointer-events: none;
+    line-height: 1.6;
+    text-align: right;
+  }
+
+  /* Tap to play/pause overlay */
+  #tap-overlay {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+  }
+
+  /* ── Controls Panel ── */
+  #controls {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+
+  /* Speed row */
+  #speed-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .speed-label {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-right: 10px;
+    white-space: nowrap;
+  }
+
+  .speed-btns {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 1px;
+  }
+  .speed-btns::-webkit-scrollbar { display: none; }
+
+  .speed-btn {
+    flex-shrink: 0;
+    padding: 5px 11px;
+    border-radius: 100px;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .speed-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0a0c;
+    font-weight: 500;
+  }
+
+  .speed-btn:active { opacity: 0.7; transform: scale(0.95); }
+
+  /* Playback controls row */
+  #playback-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ctrl-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex: 1;
+    max-width: 72px;
+    min-height: 56px;
+  }
+
+  .ctrl-btn svg { width: 20px; height: 20px; stroke: var(--text); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .ctrl-btn span { font-size: 9px; font-family: 'DM Mono', monospace; color: var(--muted); letter-spacing: 0.05em; }
+  .ctrl-btn:active { background: rgba(200,255,71,0.08); border-color: var(--accent); transform: scale(0.95); }
+
+  #play-btn {
+    background: var(--accent);
+    border-color: var(--accent);
+    max-width: 80px;
+    min-height: 62px;
+  }
+  #play-btn svg { stroke: #0a0a0c; width: 24px; height: 24px; }
+  #play-btn span { color: rgba(10,10,12,0.6); }
+  #play-btn:active { background: rgba(200,255,71,0.7); }
+
+  .save-btn { background: rgba(71,212,255,0.08); border-color: rgba(71,212,255,0.2); }
+  .save-btn svg { stroke: var(--accent2); }
+
+  /* Thumbnail timeline */
+  #timeline-section {
+    padding: 10px 12px 12px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+  }
+
+  .timeline-label {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  #thumbnail-strip {
+    position: relative;
+    height: 52px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  #thumb-canvas-strip {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  #thumb-canvas-strip canvas {
+    flex-shrink: 0;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  #timeline-indicator {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: var(--accent);
+    pointer-events: none;
+    box-shadow: 0 0 6px var(--accent);
+    transition: left 0.05s linear;
+    z-index: 10;
+  }
+
+  #timeline-indicator::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+
+  /* Progress bar (simple) */
+  #progress-bar-wrap {
+    position: relative;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  #progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 100px;
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.25s;
+    z-index: 9999;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Frame indicator flash */
+  #frame-flash {
+    position: absolute;
+    inset: 0;
+    background: rgba(200,255,71,0.08);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 5;
+  }
+  #frame-flash.flash { opacity: 1; }
+
+  /* Loading thumbs */
+  .thumb-loading {
+    color: var(--muted);
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    text-align: center;
+    padding: 16px 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Upload screen -->
+  <div id="upload-screen">
+    <div class="logo">Video Frame Player</div>
+    <label class="upload-zone" for="file-input">
+      <div class="upload-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M15 10l4.553-2.276A1 1 0 0121 8.723v6.554a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+      </div>
+      <div class="upload-text">選擇影片</div>
+      <div class="upload-sub">MP4 · MOV · WebM</div>
+    </label>
+    <input type="file" id="file-input" accept="video/*">
+  </div>
+
+  <!-- Player screen -->
+  <div id="player-screen">
+
+    <div id="video-container">
+      <video id="video" playsinline webkit-playsinline></video>
+      <div id="time-overlay">
+        <div id="time-display">00:00.000</div>
+        <div id="frame-display">Frame —</div>
+      </div>
+      <div id="tap-overlay"></div>
+      <div id="frame-flash"></div>
+    </div>
+
+    <div id="controls">
+
+      <!-- Speed -->
+      <div id="speed-row">
+        <div class="speed-label">速度</div>
+        <div class="speed-btns">
+          <button class="speed-btn" data-speed="0.1">× 0.1</button>
+          <button class="speed-btn" data-speed="0.5">× 0.5</button>
+          <button class="speed-btn active" data-speed="1">× 1</button>
+          <button class="speed-btn" data-speed="2">× 2</button>
+          <button class="speed-btn" data-speed="frame">1 Frame/s</button>
+        </div>
+      </div>
+
+      <!-- Playback -->
+      <div id="playback-row">
+        <button class="ctrl-btn" id="back5-btn">
+          <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.47"/><text x="12" y="14.5" text-anchor="middle" font-size="6" fill="white" stroke="none" font-family="monospace">5</text></svg>
+          <span>-5s</span>
+        </button>
+        <button class="ctrl-btn" id="prev-frame-btn">
+          <svg viewBox="0 0 24 24"><polygon points="11 19 2 12 11 5 11 19"/><line x1="22" y1="19" x2="22" y2="5"/></svg>
+          <span>上格</span>
+        </button>
+        <button class="ctrl-btn" id="play-btn">
+          <svg id="play-icon" viewBox="0 0 24 24"><polygon fill="#0a0a0c" stroke="#0a0a0c" points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="play-label">播放</span>
+        </button>
+        <button class="ctrl-btn" id="next-frame-btn">
+          <svg viewBox="0 0 24 24"><polygon points="13 19 22 12 13 5 13 19"/><line x1="2" y1="19" x2="2" y2="5"/></svg>
+          <span>下格</span>
+        </button>
+        <button class="ctrl-btn" id="fwd5-btn">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-3.47"/><text x="12" y="14.5" text-anchor="middle" font-size="6" fill="white" stroke="none" font-family="monospace">5</text></svg>
+          <span>+5s</span>
+        </button>
+        <button class="ctrl-btn save-btn" id="save-btn">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="13" r="3"/><rect x="8" y="3" width="8" height="4" rx="1"/></svg>
+          <span>截圖</span>
+        </button>
+      </div>
+
+      <!-- Timeline -->
+      <div id="timeline-section">
+        <div class="timeline-label">
+          <span>時間軸縮圖</span>
+          <span id="total-time-label">—</span>
+        </div>
+        <div id="progress-bar-wrap">
+          <div id="progress-fill"></div>
+        </div>
+        <div id="thumbnail-strip">
+          <div id="thumb-canvas-strip"></div>
+          <div id="timeline-indicator"></div>
+        </div>
+        <div id="thumb-status" class="thumb-loading">生成縮圖中…</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<canvas id="hidden-canvas" style="display:none"></canvas>
+
+<script>
+const video = document.getElementById('video');
+const fileInput = document.getElementById('file-input');
+const uploadScreen = document.getElementById('upload-screen');
+const playerScreen = document.getElementById('player-screen');
+const playBtn = document.getElementById('play-btn');
+const playIcon = document.getElementById('play-icon');
+const playLabel = document.getElementById('play-label');
+const timeDisplay = document.getElementById('time-display');
+const frameDisplay = document.getElementById('frame-display');
+const progressFill = document.getElementById('progress-fill');
+const timelineIndicator = document.getElementById('timeline-indicator');
+const thumbnailStrip = document.getElementById('thumbnail-strip');
+const thumbCanvasStrip = document.getElementById('thumb-canvas-strip');
+const hiddenCanvas = document.getElementById('hidden-canvas');
+const thumbStatus = document.getElementById('thumb-status');
+const frameFlash = document.getElementById('frame-flash');
+const totalTimeLabel = document.getElementById('total-time-label');
+
+let fps = 30;
+let duration = 0;
+let isPlaying = false;
+let currentSpeed = 1;
+let frameMode = false;
+let frameInterval = null;
+let thumbCount = 20;
+let thumbnailsReady = false;
+let videoContainer = document.getElementById('video-container');
+
+// ── Utilities ──
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(3);
+  return `${String(m).padStart(2,'0')}:${sec.padStart(6,'0')}`;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function flashFrame() {
+  frameFlash.classList.add('flash');
+  setTimeout(() => frameFlash.classList.remove('flash'), 80);
+}
+
+function updateUI() {
+  const ct = video.currentTime;
+  const frame = Math.round(ct * fps);
+  timeDisplay.textContent = formatTime(ct);
+  frameDisplay.textContent = `Frame ${frame}`;
+  const pct = duration ? (ct / duration) * 100 : 0;
+  progressFill.style.width = pct + '%';
+  timelineIndicator.style.left = pct + '%';
+}
+
+// ── File load ──
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  video.src = url;
+  video.load();
+  uploadScreen.style.display = 'none';
+  playerScreen.style.display = 'flex';
+  video.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
+});
+
+function onMetaLoaded() {
+  duration = video.duration;
+  totalTimeLabel.textContent = formatTime(duration);
+  // Estimate FPS
+  if (video.getVideoPlaybackQuality) {
+    // Try to detect fps later via playback
+  }
+  sizeVideoContainer();
+  updateUI();
+  generateThumbnails();
+}
+
+function sizeVideoContainer() {
+  const vw = video.videoWidth || 1;
+  const vh = video.videoHeight || 1;
+  const ar = vw / vh;
+  const screenW = window.innerWidth;
+  const maxH = Math.round(window.innerHeight * 0.42);
+  let h = Math.min(maxH, Math.round(screenW / ar));
+  videoContainer.style.height = h + 'px';
+}
+
+window.addEventListener('resize', sizeVideoContainer);
+
+// ── Thumbnail generation ──
+async function generateThumbnails() {
+  thumbCanvasStrip.innerHTML = '';
+  thumbnailsReady = false;
+  thumbStatus.textContent = '生成縮圖中…';
+  thumbStatus.style.display = 'block';
+
+  const stripW = thumbnailStrip.offsetWidth || 320;
+  const stripH = thumbnailStrip.offsetHeight || 52;
+  const count = Math.max(10, Math.round(stripW / (stripH * 16/9)));
+  thumbCount = count;
+
+  const ctx = hiddenCanvas.getContext('2d');
+  const thumbW = Math.round(stripW / count);
+  hiddenCanvas.width = thumbW;
+  hiddenCanvas.height = stripH;
+
+  for (let i = 0; i < count; i++) {
+    const t = (i / count) * duration;
+    await seekToTime(t);
+    const c = document.createElement('canvas');
+    c.width = thumbW;
+    c.height = stripH;
+    const cx = c.getContext('2d');
+    cx.drawImage(video, 0, 0, thumbW, stripH);
+    c.style.width = thumbW + 'px';
+    c.style.height = stripH + 'px';
+    thumbCanvasStrip.appendChild(c);
+  }
+
+  thumbnailsReady = true;
+  thumbStatus.style.display = 'none';
+  // Restore position
+  video.currentTime = 0;
+  updateUI();
+}
+
+function seekToTime(t) {
+  return new Promise(resolve => {
+    video.currentTime = t;
+    const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
+    video.addEventListener('seeked', onSeeked);
+  });
+}
+
+// ── Play/Pause ──
+function setPlayIcon(playing) {
+  if (playing) {
+    playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16" fill="#0a0a0c" stroke="#0a0a0c"/><rect x="14" y="4" width="4" height="16" fill="#0a0a0c" stroke="#0a0a0c"/>';
+    playLabel.textContent = '暫停';
+  } else {
+    playIcon.innerHTML = '<polygon fill="#0a0a0c" stroke="#0a0a0c" points="5 3 19 12 5 21 5 3"/>';
+    playLabel.textContent = '播放';
+  }
+}
+
+document.getElementById('tap-overlay').addEventListener('click', togglePlay);
+playBtn.addEventListener('click', togglePlay);
+
+function togglePlay() {
+  if (frameMode) {
+    toggleFrameMode();
+    return;
+  }
+  if (video.paused) {
+    video.play();
+    isPlaying = true;
+    setPlayIcon(true);
+  } else {
+    video.pause();
+    isPlaying = false;
+    setPlayIcon(false);
+  }
+}
+
+function stopFrameMode() {
+  if (frameInterval) { clearInterval(frameInterval); frameInterval = null; }
+  frameMode = false;
+}
+
+function toggleFrameMode() {
+  if (frameMode) {
+    stopFrameMode();
+    setPlayIcon(false);
+    return;
+  }
+  video.pause();
+  frameMode = true;
+  setPlayIcon(true);
+  const spf = 1 / fps;
+  frameInterval = setInterval(() => {
+    if (video.currentTime >= duration - spf) {
+      stopFrameMode();
+      setPlayIcon(false);
+      return;
+    }
+    video.currentTime = Math.min(video.currentTime + spf, duration);
+    flashFrame();
+    updateUI();
+  }, 1000);
+}
+
+video.addEventListener('timeupdate', updateUI);
+video.addEventListener('ended', () => { isPlaying = false; setPlayIcon(false); });
+
+// ── Speed ──
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const s = btn.dataset.speed;
+    stopFrameMode();
+    if (s === 'frame') {
+      video.pause();
+      isPlaying = false;
+      currentSpeed = 1;
+      video.playbackRate = 1;
+      toggleFrameMode();
+    } else {
+      currentSpeed = parseFloat(s);
+      video.playbackRate = currentSpeed;
+      if (!video.paused) { setPlayIcon(true); }
+    }
+  });
+});
+
+// ── Seek ──
+document.getElementById('back5-btn').addEventListener('click', () => {
+  stopFrameMode();
+  video.currentTime = Math.max(0, video.currentTime - 5);
+  updateUI();
+});
+document.getElementById('fwd5-btn').addEventListener('click', () => {
+  stopFrameMode();
+  video.currentTime = Math.min(duration, video.currentTime + 5);
+  updateUI();
+});
+
+document.getElementById('prev-frame-btn').addEventListener('click', () => {
+  stopFrameMode();
+  video.pause(); isPlaying = false; setPlayIcon(false);
+  const spf = 1 / fps;
+  video.currentTime = Math.max(0, video.currentTime - spf);
+  flashFrame();
+  updateUI();
+});
+document.getElementById('next-frame-btn').addEventListener('click', () => {
+  stopFrameMode();
+  video.pause(); isPlaying = false; setPlayIcon(false);
+  const spf = 1 / fps;
+  video.currentTime = Math.min(duration, video.currentTime + spf);
+  flashFrame();
+  updateUI();
+});
+
+// ── Timeline scrub ──
+let isScrubbing = false;
+
+function scrubAt(clientX) {
+  const rect = thumbnailStrip.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  video.currentTime = pct * duration;
+  updateUI();
+}
+
+thumbnailStrip.addEventListener('touchstart', e => { isScrubbing = true; scrubAt(e.touches[0].clientX); stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false); }, { passive: true });
+thumbnailStrip.addEventListener('touchmove', e => { if (isScrubbing) scrubAt(e.touches[0].clientX); }, { passive: true });
+thumbnailStrip.addEventListener('touchend', () => { isScrubbing = false; });
+thumbnailStrip.addEventListener('mousedown', e => { isScrubbing = true; scrubAt(e.clientX); stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false); });
+document.addEventListener('mousemove', e => { if (isScrubbing) scrubAt(e.clientX); });
+document.addEventListener('mouseup', () => { isScrubbing = false; });
+
+// ── Progress bar scrub ──
+const progressWrap = document.getElementById('progress-bar-wrap');
+function scrubProgress(clientX) {
+  const rect = progressWrap.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  video.currentTime = pct * duration;
+  updateUI();
+}
+progressWrap.addEventListener('touchstart', e => { scrubProgress(e.touches[0].clientX); stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false); }, { passive: true });
+progressWrap.addEventListener('touchmove', e => { scrubProgress(e.touches[0].clientX); }, { passive: true });
+progressWrap.addEventListener('mousedown', e => { scrubProgress(e.clientX); });
+
+// ── Save frame ──
+document.getElementById('save-btn').addEventListener('click', () => {
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  hiddenCanvas.width = w;
+  hiddenCanvas.height = h;
+  const ctx = hiddenCanvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, w, h);
+  const frame = Math.round(video.currentTime * fps);
+  hiddenCanvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `frame_${frame}_${formatTime(video.currentTime).replace(/[:.]/g,'_')}.jpg`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`已儲存 Frame ${frame}`);
+  }, 'image/jpeg', 0.95);
+});
+
+// ── Upload zone label click ──
+document.querySelector('.upload-zone').addEventListener('click', () => fileInput.click());
+</script>
+</body>
+</html>
