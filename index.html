@@ -436,7 +436,6 @@
         <div id="frame-display">Frame —</div>
       </div>
       <div id="tap-overlay"></div>
-      <div id="frame-flash"></div>
     </div>
 
     <div id="controls">
@@ -532,6 +531,7 @@ let frameInterval = null;
 let thumbCount = 20;
 let thumbnailsReady = false;
 let videoContainer = document.getElementById('video-container');
+let currentBlobUrl = null;
 
 // ── Utilities ──
 function formatTime(s) {
@@ -547,11 +547,6 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-function flashFrame() {
-  frameFlash.classList.add('flash');
-  setTimeout(() => frameFlash.classList.remove('flash'), 80);
-}
-
 function updateUI() {
   const ct = video.currentTime;
   const frame = Math.round(ct * fps);
@@ -562,37 +557,87 @@ function updateUI() {
   timelineIndicator.style.left = pct + '%';
 }
 
+// ── FIX 1: Change video button in player header ──
+// Add a "換片" button to the player controls area
+function addChangeVideoBtn() {
+  const speedRow = document.getElementById('speed-row');
+  if (document.getElementById('change-video-btn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'change-video-btn';
+  btn.textContent = '換片';
+  btn.style.cssText = `
+    flex-shrink:0; margin-left:8px; padding:5px 11px;
+    border-radius:100px; border:1.5px solid rgba(71,212,255,0.3);
+    background:rgba(71,212,255,0.08); color:#47d4ff;
+    font-family:'DM Mono',monospace; font-size:12px; cursor:pointer;
+    white-space:nowrap;
+  `;
+  btn.addEventListener('click', () => changeVideoInput.click());
+  speedRow.appendChild(btn);
+}
+
+// Hidden file input for changing video while in player
+const changeVideoInput = document.createElement('input');
+changeVideoInput.type = 'file';
+changeVideoInput.accept = 'video/*';
+changeVideoInput.style.display = 'none';
+document.body.appendChild(changeVideoInput);
+
+changeVideoInput.addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  changeVideoInput.value = '';
+  loadVideoFile(file);
+});
+
 // ── File load ──
 fileInput.addEventListener('change', e => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
+  fileInput.value = '';
+  loadVideoFile(file);
+  uploadScreen.style.display = 'none';
+  playerScreen.style.display = 'flex';
+  addChangeVideoBtn();
+});
 
-  // Revoke previous URL if any
-  if (video.src && video.src.startsWith('blob:')) URL.revokeObjectURL(video.src);
+function loadVideoFile(file) {
+  // Stop everything
+  stopFrameMode();
+  video.pause();
+  isPlaying = false;
+  setPlayIcon(false);
+  duration = 0;
+  thumbnailsReady = false;
+  thumbCanvasStrip.innerHTML = '';
+  thumbStatus.textContent = '生成縮圖中…';
+  thumbStatus.style.display = 'block';
 
-  const url = URL.createObjectURL(file);
-  video.src = url;
+  // Reset speed to 1x
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
+  currentSpeed = 1;
+  video.playbackRate = 1;
+
+  if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+  currentBlobUrl = URL.createObjectURL(file);
+  video.src = currentBlobUrl;
   video.load();
 
   uploadScreen.style.display = 'none';
   playerScreen.style.display = 'flex';
+  addChangeVideoBtn();
 
   video.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
-
-  // iOS fallback: sometimes loadedmetadata doesn't fire, use canplay
   video.addEventListener('canplay', function onCanPlay() {
     video.removeEventListener('canplay', onCanPlay);
     if (duration === 0 && video.duration > 0) onMetaLoaded();
   });
-});
+}
 
 function onMetaLoaded() {
   duration = video.duration;
   totalTimeLabel.textContent = formatTime(duration);
-  // Estimate FPS
-  if (video.getVideoPlaybackQuality) {
-    // Try to detect fps later via playback
-  }
   sizeVideoContainer();
   updateUI();
   generateThumbnails();
@@ -621,11 +666,7 @@ async function generateThumbnails() {
   const stripH = thumbnailStrip.offsetHeight || 52;
   const count = Math.max(10, Math.round(stripW / (stripH * 16/9)));
   thumbCount = count;
-
-  const ctx = hiddenCanvas.getContext('2d');
   const thumbW = Math.round(stripW / count);
-  hiddenCanvas.width = thumbW;
-  hiddenCanvas.height = stripH;
 
   for (let i = 0; i < count; i++) {
     const t = (i / count) * duration;
@@ -633,8 +674,7 @@ async function generateThumbnails() {
     const c = document.createElement('canvas');
     c.width = thumbW;
     c.height = stripH;
-    const cx = c.getContext('2d');
-    cx.drawImage(video, 0, 0, thumbW, stripH);
+    c.getContext('2d').drawImage(video, 0, 0, thumbW, stripH);
     c.style.width = thumbW + 'px';
     c.style.height = stripH + 'px';
     thumbCanvasStrip.appendChild(c);
@@ -642,16 +682,15 @@ async function generateThumbnails() {
 
   thumbnailsReady = true;
   thumbStatus.style.display = 'none';
-  // Restore position
   video.currentTime = 0;
   updateUI();
 }
 
 function seekToTime(t) {
   return new Promise(resolve => {
-    video.currentTime = t;
     const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
     video.addEventListener('seeked', onSeeked);
+    video.currentTime = t;
   });
 }
 
@@ -670,50 +709,40 @@ document.getElementById('tap-overlay').addEventListener('click', togglePlay);
 playBtn.addEventListener('click', togglePlay);
 
 function togglePlay() {
-  if (frameMode) {
-    toggleFrameMode();
-    return;
-  }
+  if (frameMode) { toggleFrameMode(); return; }
   if (video.paused) {
-    video.play();
-    isPlaying = true;
-    setPlayIcon(true);
+    video.play(); isPlaying = true; setPlayIcon(true);
   } else {
-    video.pause();
-    isPlaying = false;
-    setPlayIcon(false);
+    video.pause(); isPlaying = false; setPlayIcon(false);
   }
 }
 
+// ── FIX 2: Frame mode without flash — use seeked event instead of interval ──
 function stopFrameMode() {
   if (frameInterval) { clearInterval(frameInterval); frameInterval = null; }
   frameMode = false;
 }
 
 function toggleFrameMode() {
-  if (frameMode) {
-    stopFrameMode();
-    setPlayIcon(false);
-    return;
-  }
-  video.pause();
+  if (frameMode) { stopFrameMode(); setPlayIcon(false); return; }
+  video.pause(); isPlaying = false;
   frameMode = true;
   setPlayIcon(true);
+  // Advance one frame per second using seeked-based stepping (no flash)
   const spf = 1 / fps;
   frameInterval = setInterval(() => {
-    if (video.currentTime >= duration - spf) {
-      stopFrameMode();
-      setPlayIcon(false);
-      return;
-    }
-    video.currentTime = Math.min(video.currentTime + spf, duration);
-    flashFrame();
-    updateUI();
+    if (!frameMode) return;
+    const next = video.currentTime + spf;
+    if (next >= duration) { stopFrameMode(); setPlayIcon(false); return; }
+    // Use seeked event to know when frame is ready — avoids visual glitch
+    const onSeeked = () => { video.removeEventListener('seeked', onSeeked); updateUI(); };
+    video.addEventListener('seeked', onSeeked);
+    video.currentTime = next;
   }, 1000);
 }
 
 video.addEventListener('timeupdate', updateUI);
-video.addEventListener('ended', () => { isPlaying = false; setPlayIcon(false); });
+video.addEventListener('ended', () => { isPlaying = false; setPlayIcon(false); stopFrameMode(); });
 
 // ── Speed ──
 document.querySelectorAll('.speed-btn').forEach(btn => {
@@ -723,47 +752,63 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
     const s = btn.dataset.speed;
     stopFrameMode();
     if (s === 'frame') {
-      video.pause();
-      isPlaying = false;
-      currentSpeed = 1;
-      video.playbackRate = 1;
+      video.pause(); isPlaying = false; currentSpeed = 1; video.playbackRate = 1;
       toggleFrameMode();
     } else {
       currentSpeed = parseFloat(s);
       video.playbackRate = currentSpeed;
-      if (!video.paused) { setPlayIcon(true); }
+      if (!video.paused) setPlayIcon(true);
     }
   });
 });
 
-// ── Seek ──
+// ── Seek +-5s ──
 document.getElementById('back5-btn').addEventListener('click', () => {
-  stopFrameMode();
-  video.currentTime = Math.max(0, video.currentTime - 5);
-  updateUI();
+  stopFrameMode(); video.currentTime = Math.max(0, video.currentTime - 5); updateUI();
 });
 document.getElementById('fwd5-btn').addEventListener('click', () => {
-  stopFrameMode();
-  video.currentTime = Math.min(duration, video.currentTime + 5);
-  updateUI();
+  stopFrameMode(); video.currentTime = Math.min(duration, video.currentTime + 5); updateUI();
 });
 
-document.getElementById('prev-frame-btn').addEventListener('click', () => {
+// ── FIX 3: Prev/Next frame with long-press continuous stepping ──
+function stepFrame(dir) {
   stopFrameMode();
   video.pause(); isPlaying = false; setPlayIcon(false);
   const spf = 1 / fps;
-  video.currentTime = Math.max(0, video.currentTime - spf);
-  flashFrame();
+  const next = video.currentTime + dir * spf;
+  video.currentTime = Math.max(0, Math.min(duration, next));
   updateUI();
-});
-document.getElementById('next-frame-btn').addEventListener('click', () => {
-  stopFrameMode();
-  video.pause(); isPlaying = false; setPlayIcon(false);
-  const spf = 1 / fps;
-  video.currentTime = Math.min(duration, video.currentTime + spf);
-  flashFrame();
-  updateUI();
-});
+}
+
+function setupLongPress(el, dir) {
+  let pressTimer = null;
+  let repeatTimer = null;
+  const LONG_MS = 400;   // delay before repeat starts
+  const REPEAT_MS = 80;  // interval between frames during hold
+
+  function start(e) {
+    e.preventDefault();
+    stepFrame(dir); // immediate first step
+    pressTimer = setTimeout(() => {
+      repeatTimer = setInterval(() => stepFrame(dir), REPEAT_MS);
+    }, LONG_MS);
+  }
+
+  function stop() {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+  }
+
+  el.addEventListener('touchstart', start, { passive: false });
+  el.addEventListener('touchend', stop);
+  el.addEventListener('touchcancel', stop);
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', stop);
+  el.addEventListener('mouseleave', stop);
+}
+
+setupLongPress(document.getElementById('prev-frame-btn'), -1);
+setupLongPress(document.getElementById('next-frame-btn'), +1);
 
 // ── Timeline scrub ──
 let isScrubbing = false;
@@ -775,10 +820,16 @@ function scrubAt(clientX) {
   updateUI();
 }
 
-thumbnailStrip.addEventListener('touchstart', e => { isScrubbing = true; scrubAt(e.touches[0].clientX); stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false); }, { passive: true });
+thumbnailStrip.addEventListener('touchstart', e => {
+  isScrubbing = true; scrubAt(e.touches[0].clientX);
+  stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false);
+}, { passive: true });
 thumbnailStrip.addEventListener('touchmove', e => { if (isScrubbing) scrubAt(e.touches[0].clientX); }, { passive: true });
 thumbnailStrip.addEventListener('touchend', () => { isScrubbing = false; });
-thumbnailStrip.addEventListener('mousedown', e => { isScrubbing = true; scrubAt(e.clientX); stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false); });
+thumbnailStrip.addEventListener('mousedown', e => {
+  isScrubbing = true; scrubAt(e.clientX);
+  stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false);
+});
 document.addEventListener('mousemove', e => { if (isScrubbing) scrubAt(e.clientX); });
 document.addEventListener('mouseup', () => { isScrubbing = false; });
 
@@ -790,31 +841,44 @@ function scrubProgress(clientX) {
   video.currentTime = pct * duration;
   updateUI();
 }
-progressWrap.addEventListener('touchstart', e => { scrubProgress(e.touches[0].clientX); stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false); }, { passive: true });
+progressWrap.addEventListener('touchstart', e => {
+  scrubProgress(e.touches[0].clientX);
+  stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false);
+}, { passive: true });
 progressWrap.addEventListener('touchmove', e => { scrubProgress(e.touches[0].clientX); }, { passive: true });
 progressWrap.addEventListener('mousedown', e => { scrubProgress(e.clientX); });
 
-// ── Save frame ──
+// ── FIX 4: Save frame at full native resolution as PNG ──
 document.getElementById('save-btn').addEventListener('click', () => {
+  video.pause(); isPlaying = false; setPlayIcon(false);
+
   const w = video.videoWidth;
   const h = video.videoHeight;
   hiddenCanvas.width = w;
   hiddenCanvas.height = h;
+
+  // Draw at pixel-perfect native resolution
   const ctx = hiddenCanvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(video, 0, 0, w, h);
+
   const frame = Math.round(video.currentTime * fps);
+  const timecode = formatTime(video.currentTime).replace(/[:.]/g, '_');
+
+  // PNG for lossless maximum quality
   hiddenCanvas.toBlob(blob => {
+    if (!blob) { showToast('截圖失敗'); return; }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `frame_${frame}_${formatTime(video.currentTime).replace(/[:.]/g,'_')}.jpg`;
+    a.download = `frame_${String(frame).padStart(6,'0')}_${timecode}.png`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
-    showToast(`已儲存 Frame ${frame}`);
-  }, 'image/jpeg', 0.95);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast(`已儲存 Frame ${frame}（PNG 最高畫質）`);
+  }, 'image/png');
 });
-
-// ── Done ──
 </script>
 </body>
 </html>
