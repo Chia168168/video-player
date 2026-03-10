@@ -416,7 +416,8 @@ const controls          = document.getElementById('controls');
 const showPill          = document.getElementById('show-pill');
 const timeOverlay       = document.getElementById('time-overlay');
 
-let fps = 30;
+let fps = 30;       // will be updated after detection
+let fpsDetected = false;
 let duration = 0;
 let isPlaying = false;
 let currentSpeed = 1;
@@ -440,8 +441,9 @@ function showToast(msg) {
 }
 function updateUI() {
   const ct = video.currentTime;
+  const frame = Math.round(ct * fps);
   timeDisplay.textContent = formatTime(ct);
-  frameDisplay.textContent = `Frame ${Math.round(ct * fps)}`;
+  frameDisplay.textContent = `Frame ${frame}  @${fps}fps`;
   const pct = duration ? (ct / duration) * 100 : 0;
   progressFill.style.width = pct + '%';
   timelineIndicator.style.left = pct + '%';
@@ -512,6 +514,7 @@ function loadVideoFile(file) {
   document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
   currentSpeed = 1; video.playbackRate = 1;
+  fps = 30; fpsDetected = false;
 
   if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
   currentBlobUrl = URL.createObjectURL(file);
@@ -531,9 +534,122 @@ function loadVideoFile(file) {
 
 function onMetaLoaded() {
   duration = video.duration;
+  fpsDetected = false;
+  fps = 30; // reset default
   totalTimeLabel.textContent = formatTime(duration);
   updateUI();
-  generateThumbnails();
+  detectFPS().then(() => {
+    updateUI(); // refresh frame display after fps known
+    generateThumbnails();
+  });
+}
+
+// ── FPS Detection ──
+// Strategy 1: requestVideoFrameCallback (Chrome/Safari 15.4+) — most accurate
+// Strategy 2: sample timestamps during short playback
+// Strategy 3: fallback common rates by rounding
+function detectFPS() {
+  return new Promise(resolve => {
+
+    // Method 1: requestVideoFrameCallback
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      let lastTime = null;
+      let samples = [];
+      let frameCount = 0;
+      const MAX_SAMPLES = 10;
+
+      function rvfcCallback(now, meta) {
+        if (lastTime !== null) {
+          const diff = meta.mediaTime - lastTime;
+          if (diff > 0 && diff < 0.2) samples.push(diff);
+        }
+        lastTime = meta.mediaTime;
+        frameCount++;
+
+        if (samples.length >= MAX_SAMPLES) {
+          // median of intervals
+          samples.sort((a, b) => a - b);
+          const median = samples[Math.floor(samples.length / 2)];
+          fps = snapToCommonFPS(1 / median);
+          fpsDetected = true;
+          video.pause();
+          video.currentTime = 0;
+          showToast(`偵測到 ${fps} fps`);
+          resolve();
+        } else {
+          video.requestVideoFrameCallback(rvfcCallback);
+        }
+      }
+
+      // Seek to start and play briefly
+      video.currentTime = 0;
+      video.playbackRate = 1;
+      const wasPaused = video.paused;
+      video.play().then(() => {
+        video.requestVideoFrameCallback(rvfcCallback);
+      }).catch(() => {
+        // If autoplay blocked, fall back
+        fallbackFPS(resolve);
+      });
+
+      // Timeout guard
+      setTimeout(() => {
+        if (!fpsDetected) {
+          video.pause();
+          video.currentTime = 0;
+          fallbackFPS(resolve);
+        }
+      }, 2500);
+      return;
+    }
+
+    // Method 2: no rvfc support
+    fallbackFPS(resolve);
+  });
+}
+
+function fallbackFPS(resolve) {
+  // Use getVideoPlaybackQuality if available to count frames over time
+  if (video.getVideoPlaybackQuality) {
+    video.currentTime = 0;
+    video.playbackRate = 1;
+    video.play().catch(() => {});
+    const startQ = video.getVideoPlaybackQuality();
+    const startFrames = startQ.totalVideoFrames;
+    const startTime = performance.now();
+
+    setTimeout(() => {
+      const q = video.getVideoPlaybackQuality();
+      const elapsed = (performance.now() - startTime) / 1000;
+      const frames = q.totalVideoFrames - startFrames;
+      if (elapsed > 0 && frames > 2) {
+        fps = snapToCommonFPS(frames / elapsed);
+      }
+      fpsDetected = true;
+      video.pause();
+      video.currentTime = 0;
+      showToast(`偵測到 ${fps} fps`);
+      resolve();
+    }, 1500);
+    return;
+  }
+
+  // Last resort: keep default 30fps but try to guess from duration
+  fps = 30;
+  fpsDetected = false;
+  resolve();
+}
+
+// Snap detected fps to nearest common value
+function snapToCommonFPS(raw) {
+  const common = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 90, 120, 240];
+  let best = common[0], bestDiff = Math.abs(raw - common[0]);
+  for (const c of common) {
+    const d = Math.abs(raw - c);
+    if (d < bestDiff) { bestDiff = d; best = c; }
+  }
+  // Only snap if close enough (within 10%), else use rounded raw
+  return bestDiff / raw < 0.1 ? best : Math.round(raw);
 }
 
 // ── Thumbnails ──
