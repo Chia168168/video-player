@@ -813,11 +813,10 @@ function setPlayIcon(on) {
 playBtn.addEventListener('click', e => { e.stopPropagation(); togglePlay(); });
 
 function togglePlay() {
-  if (frameMode) { toggleFrameMode(); return; }
-  // If user selected frame speed button, resume in frame mode
-  if (currentSpeed === 'frame') { toggleFrameMode(); return; }
+  if (frameMode) { toggleFrameMode(); hidePanel(); return; }
+  if (currentSpeed === 'frame') { toggleFrameMode(); hidePanel(); return; }
   if (video.paused) {
-    video.play(); isPlaying = true; setPlayIcon(true); resetAutoHide();
+    video.play(); isPlaying = true; setPlayIcon(true); hidePanel();
   } else {
     video.pause(); isPlaying = false; setPlayIcon(false); clearTimeout(autoHideTimer);
   }
