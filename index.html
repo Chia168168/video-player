@@ -352,7 +352,7 @@
 
 <!-- Upload -->
 <div id="upload-screen">
-  <div class="logo">Video Frame Player</div>
+  <div class="logo">TENG 影片播放器</div>
   <div class="upload-zone">
     <input type="file" id="file-input" accept="video/*">
     <div class="upload-icon">
@@ -586,11 +586,7 @@ document.getElementById('mini-save').addEventListener('click', e => {
   document.getElementById('save-btn').click();
 });
 
-// Tap video: show panel if hidden; else toggle play
-document.getElementById('tap-overlay').addEventListener('click', () => {
-  if (!panelVisible) { showPanel(); return; }
-  togglePlay();
-});
+document.getElementById('tap-overlay').addEventListener('click', () => togglePlay());
 
 const changeInput = document.createElement('input');
 changeInput.type = 'file';
