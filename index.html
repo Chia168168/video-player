@@ -839,8 +839,11 @@ async function generateThumbnails() {
   await new Promise(r => setTimeout(r, 100));
   const W = thumbnailStrip.offsetWidth || 320;
   const H = thumbnailStrip.offsetHeight || 50;
-  const count = Math.max(10, Math.round(W / (H * 16 / 9)));
-  const tw = Math.round(W / count);
+  const vw = video.videoWidth || 16;
+  const vh = video.videoHeight || 9;
+  const aspect = vw / vh;
+  const tw = Math.round(H * aspect);
+  const count = Math.max(6, Math.round(W / tw));
 
   for (let i = 0; i < count; i++) {
     await seekExact((i / count) * duration);
