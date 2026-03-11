@@ -355,7 +355,15 @@
   }
   #loop-set-in.set { border-color: rgba(200,255,71,0.5); color: var(--accent); }
   #loop-set-out.set { border-color: rgba(200,255,71,0.5); color: var(--accent); }
-  #loop-set-in:active, #loop-set-out:active, #loop-toggle:active { opacity: 0.6; }
+  #loop-set-in:active, #loop-set-out:active, #loop-toggle:active, #loop-clear:active { opacity: 0.6; }
+
+  #loop-clear {
+    background: transparent; border: 1.5px solid rgba(255,255,255,0.2);
+    border-radius: 100px; padding: 5px 10px;
+    color: rgba(255,255,255,0.4); font-family: 'DM Mono', monospace;
+    font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    transition: all 0.15s;
+  }
 
   #loop-range-display {
     flex: 1; font-family: 'DM Mono', monospace; font-size: 10px;
@@ -527,6 +535,7 @@
     <div id="loop-row">
       <button id="loop-set-in">IN</button>
       <button id="loop-set-out">OUT</button>
+      <button id="loop-clear">✕</button>
       <button id="loop-toggle">⟲ 循環</button>
       <div id="loop-range-display">—</div>
     </div>
@@ -966,9 +975,14 @@ function scrubAt(cx) {
 thumbnailStrip.addEventListener('touchstart', e => {
   e.stopPropagation(); isScrubbing = true; scrubAt(e.touches[0].clientX);
   stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false);
-}, { passive: true });
-thumbnailStrip.addEventListener('touchmove', e => { if (isScrubbing) scrubAt(e.touches[0].clientX); }, { passive: true });
+}, { passive: false });
+thumbnailStrip.addEventListener('touchmove', e => {
+  if (!isScrubbing) return;
+  e.preventDefault(); e.stopPropagation();
+  scrubAt(e.touches[0].clientX);
+}, { passive: false });
 thumbnailStrip.addEventListener('touchend', () => isScrubbing = false);
+thumbnailStrip.addEventListener('touchcancel', () => isScrubbing = false);
 thumbnailStrip.addEventListener('mousedown', e => {
   e.stopPropagation(); isScrubbing = true; scrubAt(e.clientX);
   stopFrameMode(); video.pause(); isPlaying = false; setPlayIcon(false);
@@ -1042,13 +1056,19 @@ loopToggleBtn.addEventListener('click', e => {
   loopActive = !loopActive;
   loopToggleBtn.classList.toggle('active', loopActive);
   if (loopActive) {
-    // Jump to IN point and play
     video.currentTime = loopIn;
     if (video.paused) togglePlay();
     showToast('循環播放開啟');
   } else {
     showToast('循環播放關閉');
   }
+  resetAutoHide();
+});
+
+document.getElementById('loop-clear').addEventListener('click', e => {
+  e.stopPropagation();
+  resetLoop();
+  showToast('已清除範圍');
   resetAutoHide();
 });
 
