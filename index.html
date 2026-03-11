@@ -811,6 +811,8 @@ playBtn.addEventListener('click', e => { e.stopPropagation(); togglePlay(); });
 
 function togglePlay() {
   if (frameMode) { toggleFrameMode(); return; }
+  // If user selected frame speed button, resume in frame mode
+  if (currentSpeed === 'frame') { toggleFrameMode(); return; }
   if (video.paused) {
     video.play(); isPlaying = true; setPlayIcon(true); resetAutoHide();
   } else {
@@ -852,7 +854,7 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
     stopFrameMode();
     const s = btn.dataset.speed;
     if (s === 'frame') {
-      video.pause(); isPlaying = false; currentSpeed = 1; video.playbackRate = 1;
+      video.pause(); isPlaying = false; currentSpeed = 'frame'; video.playbackRate = 1;
       toggleFrameMode();
     } else {
       currentSpeed = parseFloat(s);
