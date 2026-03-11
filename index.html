@@ -331,6 +331,49 @@
     font-family: 'DM Mono', monospace; text-align: center; padding: 8px 0 0;
   }
 
+  /* Loop range */
+  #loop-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 12px 8px;
+  }
+  #loop-toggle {
+    background: transparent; border: 1.5px solid rgba(255,255,255,0.2);
+    border-radius: 100px; padding: 5px 12px;
+    color: rgba(255,255,255,0.5); font-family: 'DM Mono', monospace;
+    font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  #loop-toggle.active {
+    border-color: var(--accent2); color: var(--accent2);
+  }
+  #loop-set-in, #loop-set-out {
+    background: transparent; border: 1.5px solid rgba(255,255,255,0.2);
+    border-radius: 100px; padding: 5px 10px;
+    color: rgba(255,255,255,0.5); font-family: 'DM Mono', monospace;
+    font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  #loop-set-in.set { border-color: rgba(200,255,71,0.5); color: var(--accent); }
+  #loop-set-out.set { border-color: rgba(200,255,71,0.5); color: var(--accent); }
+  #loop-set-in:active, #loop-set-out:active, #loop-toggle:active { opacity: 0.6; }
+
+  #loop-range-display {
+    flex: 1; font-family: 'DM Mono', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.35); text-align: right; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* Range overlay on thumbnail strip */
+  #loop-range-overlay {
+    position: absolute; top: 0; height: 100%;
+    background: rgba(200,255,71,0.15);
+    border-left: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    pointer-events: none; z-index: 8;
+    display: none;
+  }
+  #loop-range-overlay.show { display: block; }
+
   /* Toast */
   #toast {
     position: fixed; bottom: 50px; left: 50%;
@@ -352,7 +395,7 @@
 
 <!-- Upload -->
 <div id="upload-screen">
-  <div class="logo">TENG 影片播放器</div>
+  <div class="logo">Video Frame Player</div>
   <div class="upload-zone">
     <input type="file" id="file-input" accept="video/*">
     <div class="upload-icon">
@@ -475,9 +518,17 @@
       <div id="progress-bar-wrap"><div id="progress-fill"></div></div>
       <div id="thumbnail-strip">
         <div id="thumb-canvas-strip"></div>
+        <div id="loop-range-overlay"></div>
         <div id="timeline-indicator"></div>
       </div>
       <div id="thumb-status" class="thumb-loading">生成縮圖中…</div>
+    </div>
+
+    <div id="loop-row">
+      <button id="loop-set-in">IN</button>
+      <button id="loop-set-out">OUT</button>
+      <button id="loop-toggle">⟲ 循環</button>
+      <div id="loop-range-display">—</div>
     </div>
   </div>
 </div>
@@ -627,6 +678,7 @@ function loadVideoFile(file) {
   document.querySelectorAll('.fps-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.fps === '30');
   });
+  resetLoop();
 
   if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
   currentFile = file;
@@ -654,6 +706,7 @@ function onMetaLoaded() {
   thumbStatus.textContent = '偵測 fps 中…';
   thumbStatus.style.display = 'block';
   updateUI();
+  updateLoopOverlay();
   detectFPS().then(() => {
     updateUI();
     generateThumbnails();
@@ -936,6 +989,84 @@ progressWrap.addEventListener('touchstart', e => {
 }, { passive: true });
 progressWrap.addEventListener('touchmove', e => scrubProg(e.touches[0].clientX), { passive: true });
 progressWrap.addEventListener('mousedown', e => { e.stopPropagation(); scrubProg(e.clientX); });
+
+// ── Loop range ──
+let loopIn = null, loopOut = null, loopActive = false;
+const loopRangeOverlay = document.getElementById('loop-range-overlay');
+const loopRangeDisplay = document.getElementById('loop-range-display');
+const loopToggleBtn    = document.getElementById('loop-toggle');
+const loopSetInBtn     = document.getElementById('loop-set-in');
+const loopSetOutBtn    = document.getElementById('loop-set-out');
+
+function updateLoopOverlay() {
+  if (loopIn !== null && loopOut !== null && duration > 0) {
+    const l = (loopIn / duration) * 100;
+    const w = ((loopOut - loopIn) / duration) * 100;
+    loopRangeOverlay.style.left  = l + '%';
+    loopRangeOverlay.style.width = w + '%';
+    loopRangeOverlay.classList.add('show');
+    loopRangeDisplay.textContent = `${formatTime(loopIn)} → ${formatTime(loopOut)}`;
+  } else {
+    loopRangeOverlay.classList.remove('show');
+    loopRangeDisplay.textContent = '—';
+  }
+}
+
+loopSetInBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  loopIn = video.currentTime;
+  if (loopOut !== null && loopIn >= loopOut) loopOut = null;
+  loopSetInBtn.classList.add('set');
+  loopSetOutBtn.classList.toggle('set', loopOut !== null);
+  updateLoopOverlay();
+  showToast(`IN: ${formatTime(loopIn)}`);
+  resetAutoHide();
+});
+
+loopSetOutBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  loopOut = video.currentTime;
+  if (loopIn !== null && loopOut <= loopIn) loopIn = null;
+  loopSetOutBtn.classList.add('set');
+  loopSetInBtn.classList.toggle('set', loopIn !== null);
+  updateLoopOverlay();
+  showToast(`OUT: ${formatTime(loopOut)}`);
+  resetAutoHide();
+});
+
+loopToggleBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  if (loopIn === null || loopOut === null) {
+    showToast('請先設定 IN / OUT'); resetAutoHide(); return;
+  }
+  loopActive = !loopActive;
+  loopToggleBtn.classList.toggle('active', loopActive);
+  if (loopActive) {
+    // Jump to IN point and play
+    video.currentTime = loopIn;
+    if (video.paused) togglePlay();
+    showToast('循環播放開啟');
+  } else {
+    showToast('循環播放關閉');
+  }
+  resetAutoHide();
+});
+
+// Monitor loop: jump back to IN when OUT is reached
+video.addEventListener('timeupdate', () => {
+  if (loopActive && loopOut !== null && video.currentTime >= loopOut) {
+    video.currentTime = loopIn;
+  }
+});
+
+// Reset loop when loading new file
+function resetLoop() {
+  loopIn = null; loopOut = null; loopActive = false;
+  loopToggleBtn.classList.remove('active');
+  loopSetInBtn.classList.remove('set');
+  loopSetOutBtn.classList.remove('set');
+  updateLoopOverlay();
+}
 
 // ── Save frame PNG ──
 document.getElementById('save-btn').addEventListener('click', e => {
