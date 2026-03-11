@@ -129,54 +129,36 @@
     z-index: 40;
     display: none;
     align-items: center;
-    gap: 6px;
-    background: rgba(0,0,0,0.28);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 100px;
+    gap: 4px;
+    background: transparent;
+    border: none;
     padding: 6px 10px;
-    transition: opacity 0.3s;
   }
   #mini-bar.show { display: flex; }
 
-  /* watermark-style: very subtle */
   .mini-btn {
     background: transparent;
     border: none;
     border-radius: 50%;
-    width: 36px; height: 36px;
+    width: 38px; height: 38px;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    transition: background 0.15s;
-    opacity: 0.55;
     flex-shrink: 0;
+    opacity: 0.75;
   }
-  .mini-btn svg { width: 18px; height: 18px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .mini-btn:active { background: rgba(255,255,255,0.15); opacity: 1; transform: scale(0.92); }
+  .mini-btn svg { width: 20px; height: 20px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .mini-btn:active { opacity: 1; transform: scale(0.9); }
 
-  #mini-play-btn {
-    width: 40px; height: 40px;
-    background: rgba(200,255,71,0.18);
-    border-radius: 50%;
-    opacity: 0.7;
-  }
-  #mini-play-btn svg { stroke: var(--accent); width: 20px; height: 20px; }
-  #mini-play-btn:active { background: rgba(200,255,71,0.35); opacity: 1; }
+  #mini-play-btn { opacity: 0.85; }
+  #mini-play-btn svg { stroke: #fff; width: 22px; height: 22px; }
 
-  /* divider */
-  .mini-divider {
-    width: 1px; height: 20px;
-    background: rgba(255,255,255,0.15);
-    flex-shrink: 0;
-  }
+  .mini-divider { display: none; }
 
-  /* expand chevron */
   #mini-expand {
-    opacity: 0.3;
-    font-size: 14px;
+    opacity: 0.4;
+    font-size: 13px;
     color: #fff;
-    padding: 0 4px;
+    padding: 0 2px;
     background: transparent;
     border: none;
     cursor: pointer;
@@ -187,11 +169,7 @@
   #controls {
     position: absolute; left: 0; right: 0; bottom: 0;
     z-index: 30;
-    background: linear-gradient(to top,
-      rgba(0,0,0,0.96) 0%,
-      rgba(0,0,0,0.88) 55%,
-      transparent 100%
-    );
+    background: transparent;
     padding-top: 32px;
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
     transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s;
@@ -208,7 +186,7 @@
     margin-bottom: 2px;
   }
   #hide-pill button {
-    background: rgba(255,255,255,0.09);
+    background: transparent;
     border: none; border-radius: 100px;
     padding: 3px 22px; cursor: pointer;
     color: rgba(255,255,255,0.38); font-size: 16px; line-height: 1.3;
@@ -218,7 +196,7 @@
   #fps-row {
     display: flex; align-items: center;
     padding: 6px 12px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
+    border-bottom: none;
   }
   .fps-btns {
     display: flex; gap: 6px; flex: 1;
@@ -228,13 +206,13 @@
   .fps-btns::-webkit-scrollbar { display: none; }
   .fps-btn {
     flex-shrink: 0; padding: 5px 10px;
-    border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.12);
-    background: transparent; color: var(--muted);
+    border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.2);
+    background: transparent; color: rgba(255,255,255,0.6);
     font-family: 'DM Mono', monospace; font-size: 12px;
     cursor: pointer; transition: all 0.15s; white-space: nowrap;
   }
   .fps-btn.active {
-    background: rgba(71,212,255,0.15);
+    background: transparent;
     border-color: var(--accent2);
     color: var(--accent2); font-weight: 500;
   }
@@ -244,11 +222,11 @@
   #speed-row {
     display: flex; align-items: center;
     padding: 6px 12px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
+    border-bottom: none;
   }
   .speed-label {
     font-size: 10px; font-family: 'DM Mono', monospace;
-    color: var(--muted); letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.35); letter-spacing: 0.2em;
     text-transform: uppercase; margin-right: 10px; white-space: nowrap;
   }
   .speed-btns {
@@ -259,14 +237,14 @@
   .speed-btns::-webkit-scrollbar { display: none; }
   .speed-btn {
     flex-shrink: 0; padding: 5px 11px;
-    border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.12);
-    background: transparent; color: var(--muted);
+    border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.2);
+    background: transparent; color: rgba(255,255,255,0.6);
     font-family: 'DM Mono', monospace; font-size: 12px;
     cursor: pointer; transition: all 0.15s; white-space: nowrap;
   }
   .speed-btn.active {
-    background: var(--accent); border-color: var(--accent);
-    color: #0a0a0c; font-weight: 500;
+    background: transparent; border-color: var(--accent);
+    color: var(--accent); font-weight: 500;
   }
   .speed-btn:active { opacity: 0.7; transform: scale(0.95); }
 
@@ -274,14 +252,14 @@
   #playback-row {
     display: flex; align-items: center; justify-content: center;
     gap: 8px; padding: 10px 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
+    border-bottom: none;
   }
   .ctrl-btn {
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 3px;
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.09);
+    background: transparent;
+    border: none;
     border-radius: 12px; padding: 10px 12px;
     cursor: pointer; transition: all 0.15s;
     flex: 1; max-width: 72px; min-height: 54px;
@@ -291,15 +269,15 @@
   .ctrl-btn:active { background: rgba(200,255,71,0.12); border-color: var(--accent); transform: scale(0.95); }
 
   #play-btn {
-    background: var(--accent); border-color: var(--accent);
+    background: transparent; border: none;
     max-width: 80px; min-height: 60px;
   }
-  #play-btn svg { stroke: #0a0a0c; width: 24px; height: 24px; }
-  #play-btn span { color: rgba(10,10,12,0.55); }
-  #play-btn:active { opacity: 0.75; transform: scale(0.95); }
+  #play-btn svg { stroke: #fff; width: 24px; height: 24px; }
+  #play-btn span { color: rgba(255,255,255,0.45); }
+  #play-btn:active { opacity: 0.7; transform: scale(0.95); }
 
-  .save-btn { background: rgba(71,212,255,0.08); border-color: rgba(71,212,255,0.2); }
-  .save-btn svg { stroke: var(--accent2); }
+  .save-btn { background: transparent; border: none; }
+  .save-btn svg { stroke: rgba(255,255,255,0.8); }
 
   /* Timeline */
   #timeline-section {
@@ -436,8 +414,8 @@
       </div>
       <button id="change-video-btn" style="
         flex-shrink:0;margin-left:8px;padding:5px 11px;
-        border-radius:100px;border:1.5px solid rgba(71,212,255,0.3);
-        background:rgba(71,212,255,0.08);color:#47d4ff;
+        border-radius:100px;border:1.5px solid rgba(255,255,255,0.2);
+        background:transparent;color:rgba(255,255,255,0.5);
         font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;white-space:nowrap;
       ">換片</button>
     </div>
@@ -818,10 +796,10 @@ async function generateThumbnails() {
 // ── Play / Pause ──
 function setPlayIcon(on) {
   if (on) {
-    playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16" fill="#0a0a0c" stroke="#0a0a0c"/><rect x="14" y="4" width="4" height="16" fill="#0a0a0c" stroke="#0a0a0c"/>';
+    playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16" fill="#fff" stroke="#fff"/><rect x="14" y="4" width="4" height="16" fill="#fff" stroke="#fff"/>';
     playLabel.textContent = '暫停';
   } else {
-    playIcon.innerHTML = '<polygon fill="#0a0a0c" stroke="#0a0a0c" points="5 3 19 12 5 21 5 3"/>';
+    playIcon.innerHTML = '<polygon fill="#fff" stroke="#fff" points="5 3 19 12 5 21 5 3"/>';
     playLabel.textContent = '播放';
   }
   syncMiniPlayIcon(on);
