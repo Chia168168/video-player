@@ -403,7 +403,7 @@
 
 <!-- Upload -->
 <div id="upload-screen">
-  <div class="logo">TENG 影片播放器</div>
+  <div class="logo">Video Frame Player</div>
   <div class="upload-zone">
     <input type="file" id="file-input" accept="video/*">
     <div class="upload-icon">
@@ -676,14 +676,13 @@ function loadVideoFile(file) {
   isPlaying = false; setPlayIcon(false);
   duration = 0;
   thumbCanvasStrip.innerHTML = '';
-  thumbStatus.textContent = '生成縮圖中…';
+  thumbStatus.textContent = '載入中…';
   thumbStatus.style.display = 'block';
 
   document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
   currentSpeed = 1; video.playbackRate = 1;
   fps = 30; fpsDetected = false;
-  // Reset fps buttons to 30
   document.querySelectorAll('.fps-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.fps === '30');
   });
@@ -691,8 +690,15 @@ function loadVideoFile(file) {
 
   if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
   currentFile = file;
-  currentBlobUrl = URL.createObjectURL(file);
-  video.src = currentBlobUrl;
+
+  try {
+    currentBlobUrl = URL.createObjectURL(file);
+  } catch(e) {
+    showToast('無法開啟檔案'); return;
+  }
+
+  // Clear old src first to free memory before loading new video
+  video.removeAttribute('src');
   video.load();
 
   uploadScreen.style.display = 'none';
@@ -700,14 +706,33 @@ function loadVideoFile(file) {
   showPanel();
   requestWakeLock();
 
-  video.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
+  let metaFired = false;
+  function onMeta() {
+    if (metaFired) return;
+    metaFired = true;
+    onMetaLoaded();
+  }
+
+  video.addEventListener('loadedmetadata', onMeta, { once: true });
   video.addEventListener('canplay', function probe() {
     video.removeEventListener('canplay', probe);
-    if (duration === 0 && video.duration > 0) onMetaLoaded();
+    if (!metaFired && video.duration > 0) onMeta();
   });
+  // Fallback: if nothing fires in 8s, try anyway
+  setTimeout(() => {
+    if (!metaFired && video.duration > 0) onMeta();
+  }, 8000);
+
+  video.src = currentBlobUrl;
+  video.load();
 }
 
 function onMetaLoaded() {
+  if (!video.duration || isNaN(video.duration)) {
+    showToast('無法讀取影片資訊');
+    thumbStatus.textContent = '載入失敗';
+    return;
+  }
   duration = video.duration;
   fpsDetected = false;
   fps = 30;
@@ -721,6 +746,16 @@ function onMetaLoaded() {
     generateThumbnails();
   });
 }
+
+// ── Video error handling ──
+video.addEventListener('error', () => {
+  const err = video.error;
+  const msg = err ? ({1:'已中止',2:'網路錯誤',3:'解碼錯誤',4:'格式不支援'}[err.code] || '未知錯誤') : '載入錯誤';
+  showToast(`影片錯誤：${msg}`);
+  thumbStatus.textContent = `錯誤：${msg}`;
+  thumbStatus.style.display = 'block';
+  isPlaying = false; setPlayIcon(false);
+});
 
 // ── FPS Detection via mp4box.js ──
 let currentFile = null;
@@ -836,7 +871,13 @@ function seekExact(t) {
 async function generateThumbnails() {
   thumbCanvasStrip.innerHTML = '';
   thumbStatus.style.display = 'block';
+  thumbStatus.textContent = '生成縮圖中…';
   await new Promise(r => setTimeout(r, 100));
+
+  if (!video.videoWidth || !video.duration) {
+    thumbStatus.style.display = 'none'; return;
+  }
+
   const W = thumbnailStrip.offsetWidth || 320;
   const H = thumbnailStrip.offsetHeight || 50;
   const vw = video.videoWidth || 16;
@@ -846,16 +887,20 @@ async function generateThumbnails() {
   const count = Math.max(6, Math.round(W / tw));
 
   for (let i = 0; i < count; i++) {
-    await seekExact((i / count) * duration);
-    const c = document.createElement('canvas');
-    c.width = tw; c.height = H;
-    c.getContext('2d').drawImage(video, 0, 0, tw, H);
-    c.style.cssText = `width:${tw}px;height:${H}px;flex-shrink:0;`;
-    thumbCanvasStrip.appendChild(c);
+    try {
+      await seekExact((i / count) * duration);
+      const c = document.createElement('canvas');
+      c.width = tw; c.height = H;
+      c.getContext('2d').drawImage(video, 0, 0, tw, H);
+      c.style.cssText = `width:${tw}px;height:${H}px;flex-shrink:0;`;
+      thumbCanvasStrip.appendChild(c);
+    } catch(e) {
+      // Skip this frame if seek fails
+    }
   }
 
   thumbStatus.style.display = 'none';
-  await seekExact(0);
+  try { await seekExact(0); } catch(e) {}
   updateUI();
 }
 
