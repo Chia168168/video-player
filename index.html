@@ -688,7 +688,7 @@ function loadVideoFile(file) {
   });
   resetLoop();
 
-  if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+  if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
   currentFile = file;
 
   try {
@@ -696,10 +696,6 @@ function loadVideoFile(file) {
   } catch(e) {
     showToast('無法開啟檔案'); return;
   }
-
-  // Clear old src first to free memory before loading new video
-  video.removeAttribute('src');
-  video.load();
 
   uploadScreen.style.display = 'none';
   playerScreen.style.display = 'block';
@@ -713,16 +709,27 @@ function loadVideoFile(file) {
     onMetaLoaded();
   }
 
+  // Remove any previous listeners before adding new ones
+  video.removeEventListener('loadedmetadata', onMeta);
   video.addEventListener('loadedmetadata', onMeta, { once: true });
-  video.addEventListener('canplay', function probe() {
-    video.removeEventListener('canplay', probe);
+  video.addEventListener('canplaythrough', function probe() {
+    video.removeEventListener('canplaythrough', probe);
     if (!metaFired && video.duration > 0) onMeta();
-  });
-  // Fallback: if nothing fires in 8s, try anyway
-  setTimeout(() => {
-    if (!metaFired && video.duration > 0) onMeta();
-  }, 8000);
+  }, { once: true });
 
+  // Stall detection — if nothing fires in 10s, show error
+  const stallTimer = setTimeout(() => {
+    if (!metaFired) {
+      if (video.duration > 0) { onMeta(); return; }
+      thumbStatus.textContent = '載入逾時，請重新選擇';
+      showToast('載入逾時');
+    }
+  }, 10000);
+
+  // Clear stall timer once loaded
+  video.addEventListener('loadedmetadata', () => clearTimeout(stallTimer), { once: true });
+
+  // Set src once, then load once
   video.src = currentBlobUrl;
   video.load();
 }
