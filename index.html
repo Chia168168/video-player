@@ -814,21 +814,52 @@ function detectFPS() {
 }
 
 async function parseFPS(file) {
-  // iPhone MOV: moov is almost always at the end.
-  // Strategy: scan tail first (8MB), then head (4MB).
   const fileSize = file.size;
   const TAIL = Math.min(8 * 1024 * 1024, fileSize);
   const HEAD = Math.min(4 * 1024 * 1024, fileSize);
 
+  showToast(`檔案 ${(fileSize/1024/1024).toFixed(1)}MB`);
+
   // Try tail first (iPhone MOV)
   const tailStart = fileSize - TAIL;
   const tailBuf = await readFileSlice(file, tailStart, fileSize);
+
+  // Debug: show first few box names in tail
+  const tv = new DataView(tailBuf);
+  let dbg = '';
+  for (let i = 0; i + 8 <= Math.min(tailBuf.byteLength, 64); i++) {
+    if (tv.getUint8(i)===0x6D && tv.getUint8(i+1)===0x6F &&
+        tv.getUint8(i+2)===0x6F && tv.getUint8(i+3)===0x76) {
+      dbg += `moov@${i} `;
+    }
+  }
+  // Also scan whole tail for moov
+  let moovCount = 0;
+  for (let i = 0; i + 4 <= tailBuf.byteLength; i++) {
+    if (tv.getUint8(i)===0x6D && tv.getUint8(i+1)===0x6F &&
+        tv.getUint8(i+2)===0x6F && tv.getUint8(i+3)===0x76) {
+      moovCount++;
+      dbg += `@${i} `;
+      if (moovCount >= 3) break;
+    }
+  }
+  setTimeout(() => showToast(`tail moov: ${moovCount}個 ${dbg || '無'}`), 2500);
+
   let result = scanBufferForFPS(tailBuf, tailStart);
   if (result) return result;
 
-  // Try head (some MP4 with moov at front)
+  // Try head
   if (fileSize > HEAD) {
     const headBuf = await readFileSlice(file, 0, HEAD);
+    const hv = new DataView(headBuf);
+    let hdbg = '';
+    for (let i = 0; i + 8 <= Math.min(headBuf.byteLength, 200); i++) {
+      if (hv.getUint8(i)===0x6D && hv.getUint8(i+1)===0x6F &&
+          hv.getUint8(i+2)===0x6F && hv.getUint8(i+3)===0x76) {
+        hdbg += `@${i} `;
+      }
+    }
+    setTimeout(() => showToast(`head moov: ${hdbg || '無'}`), 5000);
     result = scanBufferForFPS(headBuf, 0);
     if (result) return result;
   }
