@@ -871,16 +871,29 @@ function scanBufferForFPS(buf, bufStart) {
   const view = new DataView(buf);
   const len = buf.byteLength;
 
-  // Byte-scan for 'moov' (6D6F6F76)
   for (let i = 0; i + 8 <= len; i++) {
     if (view.getUint8(i)   === 0x6D &&
         view.getUint8(i+1) === 0x6F &&
         view.getUint8(i+2) === 0x6F &&
         view.getUint8(i+3) === 0x76) {
-      // size is 4 bytes before the name
       if (i < 4) continue;
-      const moovEnd = Math.min(i - 4 + readU32(view, i - 4), len);
+      const moovSize = readU32(view, i - 4);
+      const moovEnd = Math.min(i - 4 + moovSize, len);
+
+      // Debug: list moov children
+      let children = '';
+      let off = i + 4;
+      while (off + 8 <= moovEnd) {
+        const sz = readU32(view, off);
+        const nm = read4cc(view, off + 4);
+        children += nm + ' ';
+        if (sz < 8 || off + sz > moovEnd) break;
+        off += sz;
+      }
+      setTimeout(() => showToast(`moov子: ${children.trim()}`), 3500);
+
       const result = parseMoov(view, i + 4, moovEnd);
+      setTimeout(() => showToast(`parseMoov結果: ${result ? result.toFixed(2) : 'null'}`), 4200);
       if (result) return result;
     }
   }
