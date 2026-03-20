@@ -818,56 +818,72 @@ async function parseFPS(file) {
   const TAIL = Math.min(8 * 1024 * 1024, fileSize);
   const HEAD = Math.min(4 * 1024 * 1024, fileSize);
 
-  showToast(`檔案 ${(fileSize/1024/1024).toFixed(1)}MB`);
-
-  // Try tail first (iPhone MOV)
-  const tailStart = fileSize - TAIL;
-  const tailBuf = await readFileSlice(file, tailStart, fileSize);
-
-  // Debug: show first few box names in tail
-  const tv = new DataView(tailBuf);
-  let dbg = '';
-  for (let i = 0; i + 8 <= Math.min(tailBuf.byteLength, 64); i++) {
-    if (tv.getUint8(i)===0x6D && tv.getUint8(i+1)===0x6F &&
-        tv.getUint8(i+2)===0x6F && tv.getUint8(i+3)===0x76) {
-      dbg += `moov@${i} `;
-    }
+  // Show persistent debug panel
+  let dbgEl = document.getElementById('fps-debug');
+  if (!dbgEl) {
+    dbgEl = document.createElement('div');
+    dbgEl.id = 'fps-debug';
+    dbgEl.style.cssText = `
+      position:fixed; top:60px; left:10px; right:10px; z-index:99999;
+      background:rgba(0,0,0,0.92); color:#c8ff47;
+      font:13px/1.7 monospace; padding:12px 14px;
+      border-radius:10px; border:1px solid rgba(200,255,71,0.3);
+      pointer-events:auto; white-space:pre-wrap; word-break:break-all;
+    `;
+    dbgEl.title = '點擊關閉';
+    dbgEl.addEventListener('click', () => dbgEl.remove());
+    document.body.appendChild(dbgEl);
   }
-  // Also scan whole tail for moov
-  let moovCount = 0;
+  function log(line) { dbgEl.textContent += line + '\n'; }
+  dbgEl.textContent = '';
+
+  log(`檔案大小: ${(fileSize/1024/1024).toFixed(1)} MB`);
+  log(`類型: ${file.type || '未知'}`);
+
+  // Tail
+  const tailStart = fileSize - TAIL;
+  log(`讀取尾部: ${(tailStart/1024/1024).toFixed(1)}MB ~ 結尾`);
+  const tailBuf = await readFileSlice(file, tailStart, fileSize);
+  const tv = new DataView(tailBuf);
+
+  let moovPositions = [];
   for (let i = 0; i + 4 <= tailBuf.byteLength; i++) {
     if (tv.getUint8(i)===0x6D && tv.getUint8(i+1)===0x6F &&
         tv.getUint8(i+2)===0x6F && tv.getUint8(i+3)===0x76) {
-      moovCount++;
-      dbg += `@${i} `;
-      if (moovCount >= 3) break;
+      moovPositions.push(i);
     }
   }
-  setTimeout(() => showToast(`tail moov: ${moovCount}個 ${dbg || '無'}`), 2500);
+  log(`tail 找到 moov: ${moovPositions.length} 個`);
+  moovPositions.slice(0,3).forEach(p => log(`  @offset ${p}`));
 
-  let result = scanBufferForFPS(tailBuf, tailStart);
-  if (result) return result;
+  let result = scanBufferForFPS(tailBuf, tailStart, log);
+  log(`tail 解析結果: ${result ? result.toFixed(3) : 'null'}`);
+  if (result) { log(`✓ 成功: ${snapToCommonFPS(result)} fps`); return result; }
 
-  // Try head
+  // Head
   if (fileSize > HEAD) {
+    log(`讀取頭部: 0 ~ ${(HEAD/1024/1024).toFixed(1)}MB`);
     const headBuf = await readFileSlice(file, 0, HEAD);
     const hv = new DataView(headBuf);
-    let hdbg = '';
-    for (let i = 0; i + 8 <= Math.min(headBuf.byteLength, 200); i++) {
+    let hPositions = [];
+    for (let i = 0; i + 4 <= headBuf.byteLength; i++) {
       if (hv.getUint8(i)===0x6D && hv.getUint8(i+1)===0x6F &&
           hv.getUint8(i+2)===0x6F && hv.getUint8(i+3)===0x76) {
-        hdbg += `@${i} `;
+        hPositions.push(i);
       }
     }
-    setTimeout(() => showToast(`head moov: ${hdbg || '無'}`), 5000);
-    result = scanBufferForFPS(headBuf, 0);
-    if (result) return result;
+    log(`head 找到 moov: ${hPositions.length} 個`);
+    result = scanBufferForFPS(headBuf, 0, log);
+    log(`head 解析結果: ${result ? result.toFixed(3) : 'null'}`);
+    if (result) { log(`✓ 成功: ${snapToCommonFPS(result)} fps`); return result; }
   }
 
+  log('✗ 無法偵測');
   return null;
 }
 
-function scanBufferForFPS(buf, bufStart) {
+function scanBufferForFPS(buf, bufStart, log) {
+  if (!log) log = () => {};
   const view = new DataView(buf);
   const len = buf.byteLength;
 
@@ -879,29 +895,29 @@ function scanBufferForFPS(buf, bufStart) {
       if (i < 4) continue;
       const moovSize = readU32(view, i - 4);
       const moovEnd = Math.min(i - 4 + moovSize, len);
+      log(`moov size=${moovSize} end=${moovEnd}`);
 
-      // Debug: list moov children
+      // List moov children
       let children = '';
       let off = i + 4;
       while (off + 8 <= moovEnd) {
         const sz = readU32(view, off);
         const nm = read4cc(view, off + 4);
-        children += nm + ' ';
-        if (sz < 8 || off + sz > moovEnd) break;
+        children += nm + '(' + sz + ') ';
+        if (sz < 8) break;
         off += sz;
       }
-      setTimeout(() => showToast(`moov子: ${children.trim()}`), 3500);
+      log(`moov子: ${children.trim()}`);
 
-      const result = parseMoov(view, i + 4, moovEnd);
-      setTimeout(() => showToast(`parseMoov結果: ${result ? result.toFixed(2) : 'null'}`), 4200);
+      const result = parseMoov(view, i + 4, moovEnd, log);
       if (result) return result;
     }
   }
   return null;
 }
 
-function parseMoov(view, start, end) {
-  // Walk moov children looking for trak boxes
+function parseMoov(view, start, end, log) {
+  if (!log) log = () => {};
   let off = start;
   while (off + 8 <= end) {
     const size = readU32(view, off);
@@ -909,7 +925,7 @@ function parseMoov(view, start, end) {
     if (size < 8) break;
     const childEnd = Math.min(off + size, end);
     if (name === 'trak') {
-      const result = parseTrak(view, off + 8, childEnd);
+      const result = parseTrak(view, off + 8, childEnd, log);
       if (result) return result;
     }
     off += size;
@@ -917,7 +933,8 @@ function parseMoov(view, start, end) {
   return null;
 }
 
-function parseTrak(view, start, end) {
+function parseTrak(view, start, end, log) {
+  if (!log) log = () => {};
   let timescale = null, sampleDelta = null, isVideo = false;
 
   function walk(s, e) {
@@ -940,6 +957,8 @@ function parseTrak(view, start, end) {
     }
   }
   walk(start, end);
+
+  log(`trak: isVideo=${isVideo} timescale=${timescale} delta=${sampleDelta}`);
 
   if (isVideo && timescale && sampleDelta && sampleDelta > 0) {
     return timescale / sampleDelta;
