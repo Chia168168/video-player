@@ -949,7 +949,9 @@ function parseTrak(view, start, end, log) {
       } else if (name === 'mdhd') {
         timescale = parseMdhd(view, off + 8, ce);
       } else if (name === 'hdlr') {
+        const dbgH = parseHdlrDebug(view, off + 8, ce);
         isVideo = parseHdlr(view, off + 8, ce);
+        log(`  hdlr: ${dbgH} → isVideo=${isVideo}`);
       } else if (name === 'stts') {
         sampleDelta = parseStts(view, off + 8, ce);
       }
@@ -977,9 +979,19 @@ function parseMdhd(view, start, end) {
 }
 
 function parseHdlr(view, start, end) {
-  // [version(1)+flags(3)] + pre_defined(4) + handler_type(4)
+  // hdlr box content: version(1)+flags(3)+pre_defined(4)+handler_type(4)+...
+  // handler_type is at start+8
   if (start + 12 > end) return false;
-  return read4cc(view, start + 8) === 'vide';
+  const h = read4cc(view, start + 8);
+  return h === 'vide';
+}
+
+function parseHdlrDebug(view, start, end) {
+  if (start + 12 > end) return '太短';
+  // Try both offset 8 and offset 4
+  const at4 = read4cc(view, start + 4);
+  const at8 = read4cc(view, start + 8);
+  return `@4=${at4} @8=${at8}`;
 }
 
 function parseStts(view, start, end) {
