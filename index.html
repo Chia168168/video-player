@@ -818,72 +818,23 @@ async function parseFPS(file) {
   const TAIL = Math.min(8 * 1024 * 1024, fileSize);
   const HEAD = Math.min(4 * 1024 * 1024, fileSize);
 
-  // Show persistent debug panel
-  let dbgEl = document.getElementById('fps-debug');
-  if (!dbgEl) {
-    dbgEl = document.createElement('div');
-    dbgEl.id = 'fps-debug';
-    dbgEl.style.cssText = `
-      position:fixed; top:60px; left:10px; right:10px; z-index:99999;
-      background:rgba(0,0,0,0.92); color:#c8ff47;
-      font:13px/1.7 monospace; padding:12px 14px;
-      border-radius:10px; border:1px solid rgba(200,255,71,0.3);
-      pointer-events:auto; white-space:pre-wrap; word-break:break-all;
-    `;
-    dbgEl.title = '點擊關閉';
-    dbgEl.addEventListener('click', () => dbgEl.remove());
-    document.body.appendChild(dbgEl);
-  }
-  function log(line) { dbgEl.textContent += line + '\n'; }
-  dbgEl.textContent = '';
+  // Try head first (moov at front for some MP4)
+  const headBuf = await readFileSlice(file, 0, HEAD);
+  let result = scanBufferForFPS(headBuf, 0);
+  if (result) return result;
 
-  log(`檔案大小: ${(fileSize/1024/1024).toFixed(1)} MB`);
-  log(`類型: ${file.type || '未知'}`);
-
-  // Tail
-  const tailStart = fileSize - TAIL;
-  log(`讀取尾部: ${(tailStart/1024/1024).toFixed(1)}MB ~ 結尾`);
-  const tailBuf = await readFileSlice(file, tailStart, fileSize);
-  const tv = new DataView(tailBuf);
-
-  let moovPositions = [];
-  for (let i = 0; i + 4 <= tailBuf.byteLength; i++) {
-    if (tv.getUint8(i)===0x6D && tv.getUint8(i+1)===0x6F &&
-        tv.getUint8(i+2)===0x6F && tv.getUint8(i+3)===0x76) {
-      moovPositions.push(i);
-    }
-  }
-  log(`tail 找到 moov: ${moovPositions.length} 個`);
-  moovPositions.slice(0,3).forEach(p => log(`  @offset ${p}`));
-
-  let result = scanBufferForFPS(tailBuf, tailStart, log);
-  log(`tail 解析結果: ${result ? result.toFixed(3) : 'null'}`);
-  if (result) { log(`✓ 成功: ${snapToCommonFPS(result)} fps`); return result; }
-
-  // Head
+  // Try tail (iPhone MOV: moov at end)
   if (fileSize > HEAD) {
-    log(`讀取頭部: 0 ~ ${(HEAD/1024/1024).toFixed(1)}MB`);
-    const headBuf = await readFileSlice(file, 0, HEAD);
-    const hv = new DataView(headBuf);
-    let hPositions = [];
-    for (let i = 0; i + 4 <= headBuf.byteLength; i++) {
-      if (hv.getUint8(i)===0x6D && hv.getUint8(i+1)===0x6F &&
-          hv.getUint8(i+2)===0x6F && hv.getUint8(i+3)===0x76) {
-        hPositions.push(i);
-      }
-    }
-    log(`head 找到 moov: ${hPositions.length} 個`);
-    result = scanBufferForFPS(headBuf, 0, log);
-    log(`head 解析結果: ${result ? result.toFixed(3) : 'null'}`);
-    if (result) { log(`✓ 成功: ${snapToCommonFPS(result)} fps`); return result; }
+    const tailStart = fileSize - TAIL;
+    const tailBuf = await readFileSlice(file, tailStart, fileSize);
+    result = scanBufferForFPS(tailBuf, tailStart);
+    if (result) return result;
   }
 
-  log('✗ 無法偵測');
   return null;
 }
 
-function scanBufferForFPS(buf, bufStart, log) {
-  if (!log) log = () => {};
+function scanBufferForFPS(buf, bufStart) {
   const view = new DataView(buf);
   const len = buf.byteLength;
 
@@ -895,29 +846,14 @@ function scanBufferForFPS(buf, bufStart, log) {
       if (i < 4) continue;
       const moovSize = readU32(view, i - 4);
       const moovEnd = Math.min(i - 4 + moovSize, len);
-      log(`moov size=${moovSize} end=${moovEnd}`);
-
-      // List moov children
-      let children = '';
-      let off = i + 4;
-      while (off + 8 <= moovEnd) {
-        const sz = readU32(view, off);
-        const nm = read4cc(view, off + 4);
-        children += nm + '(' + sz + ') ';
-        if (sz < 8) break;
-        off += sz;
-      }
-      log(`moov子: ${children.trim()}`);
-
-      const result = parseMoov(view, i + 4, moovEnd, log);
+      const result = parseMoov(view, i + 4, moovEnd);
       if (result) return result;
     }
   }
   return null;
 }
 
-function parseMoov(view, start, end, log) {
-  if (!log) log = () => {};
+function parseMoov(view, start, end) {
   let off = start;
   while (off + 8 <= end) {
     const size = readU32(view, off);
@@ -925,7 +861,7 @@ function parseMoov(view, start, end, log) {
     if (size < 8) break;
     const childEnd = Math.min(off + size, end);
     if (name === 'trak') {
-      const result = parseTrak(view, off + 8, childEnd, log);
+      const result = parseTrak(view, off + 8, childEnd);
       if (result) return result;
     }
     off += size;
@@ -933,8 +869,7 @@ function parseMoov(view, start, end, log) {
   return null;
 }
 
-function parseTrak(view, start, end, log) {
-  if (!log) log = () => {};
+function parseTrak(view, start, end) {
   let timescale = null, sampleDelta = null, isVideo = false;
 
   function walk(s, e) {
@@ -949,9 +884,8 @@ function parseTrak(view, start, end, log) {
       } else if (name === 'mdhd') {
         timescale = parseMdhd(view, off + 8, ce);
       } else if (name === 'hdlr') {
-        const dbgH = parseHdlrDebug(view, off + 8, ce);
-        isVideo = parseHdlr(view, off + 8, ce);
-        log(`  hdlr: ${dbgH} → isVideo=${isVideo}`);
+        const h = parseHdlr(view, off + 8, ce);
+        if (h) isVideo = true;
       } else if (name === 'stts') {
         sampleDelta = parseStts(view, off + 8, ce);
       }
@@ -959,8 +893,6 @@ function parseTrak(view, start, end, log) {
     }
   }
   walk(start, end);
-
-  log(`trak: isVideo=${isVideo} timescale=${timescale} delta=${sampleDelta}`);
 
   if (isVideo && timescale && sampleDelta && sampleDelta > 0) {
     return timescale / sampleDelta;
