@@ -789,60 +789,40 @@ document.querySelectorAll('.fps-btn').forEach(btn => {
 function detectFPS() {
   return new Promise(async resolve => {
     if (!currentFile || typeof MP4Box === 'undefined') {
-      showToast('請手動選擇 FPS');
-      resolve(); return;
+      showToast('請手動選擇 FPS'); resolve(); return;
     }
 
-    // Strategy: read head 2MB first, then tail 2MB only if needed.
-    // Never scan the whole file — avoids crashing iOS on large files.
-    const HEAD = Math.min(2 * 1024 * 1024, currentFile.size);
-    const TAIL = Math.min(2 * 1024 * 1024, currentFile.size);
-
-    async function tryParse(slices) {
+    // Try parsing a single contiguous buffer with a fresh mp4box instance
+    function tryBuffer(buf, fileStart) {
       return new Promise(res => {
-        const mp4boxFile = MP4Box.createFile();
-        let resolved = false;
-
-        function done(detectedFps) {
-          if (resolved) return;
-          resolved = true;
-          res(detectedFps);
-        }
-
-        mp4boxFile.onReady = info => {
-          const vtrack = info.tracks.find(t => t.type === 'video');
-          if (vtrack && vtrack.nb_samples && vtrack.duration && vtrack.timescale) {
-            done(vtrack.nb_samples / (vtrack.duration / vtrack.timescale));
-          } else {
-            done(null);
-          }
+        const box = MP4Box.createFile();
+        let done = false;
+        box.onReady = info => {
+          if (done) return; done = true;
+          const vt = info.tracks.find(t => t.type === 'video');
+          if (vt && vt.nb_samples > 0 && vt.timescale > 0 && vt.duration > 0) {
+            res(vt.nb_samples / (vt.duration / vt.timescale));
+          } else { res(null); }
         };
-        mp4boxFile.onError = () => done(null);
-        setTimeout(() => done(null), 5000);
-
-        // Feed the provided slices sequentially
-        let idx = 0;
-        function feedSlice() {
-          if (resolved || idx >= slices.length) { mp4boxFile.flush(); return; }
-          const [start, buf] = slices[idx++];
-          buf.fileStart = start;
-          mp4boxFile.appendBuffer(buf);
-          if (!resolved) feedSlice();
-        }
-        feedSlice();
+        box.onError = () => { if (!done) { done = true; res(null); } };
+        setTimeout(() => { if (!done) { done = true; res(null); } }, 3000);
+        buf.fileStart = fileStart;
+        box.appendBuffer(buf);
+        box.flush();
       });
     }
 
     try {
-      // Read head
+      const HEAD = Math.min(4 * 1024 * 1024, currentFile.size);
       const headBuf = await readFileSlice(currentFile, 0, HEAD);
-      let result = await tryParse([[0, headBuf]]);
+      let result = await tryBuffer(headBuf, 0);
 
-      // If not found in head, try tail
       if (!result && currentFile.size > HEAD) {
+        // Try tail — moov often at end for camera-recorded files
+        const TAIL = Math.min(4 * 1024 * 1024, currentFile.size - HEAD);
         const tailStart = currentFile.size - TAIL;
         const tailBuf = await readFileSlice(currentFile, tailStart, currentFile.size);
-        result = await tryParse([[tailStart, tailBuf]]);
+        result = await tryBuffer(tailBuf, tailStart);
       }
 
       if (result && result > 1 && result <= 300) {
